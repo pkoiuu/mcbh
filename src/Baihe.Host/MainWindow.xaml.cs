@@ -2,7 +2,7 @@
 // 负责将前端 WebView2 与后端 IpcRouter 连接起来
 
 using System;
-using System.Diagnostics;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
@@ -27,8 +27,48 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // 注册窗口控制和应用信息命令
+        RegisterHostCommands();
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
+    }
+
+    /// <summary>
+    /// 注册宿主层命令 — 窗口控制、应用信息等
+    /// </summary>
+    private void RegisterHostCommands()
+    {
+        // 窗口控制命令
+        _ipcRouter.Register("window.close", _ =>
+        {
+            Dispatcher.Invoke(Close);
+            return Task.FromResult<object>(true);
+        });
+
+        _ipcRouter.Register("window.minimize", _ =>
+        {
+            Dispatcher.Invoke(() => WindowState = WindowState.Minimized);
+            return Task.FromResult<object>(true);
+        });
+
+        _ipcRouter.Register("window.maximize", _ =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                WindowState = WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+            });
+            return Task.FromResult<object>(true);
+        });
+
+        // 应用信息命令
+        _ipcRouter.Register("app.getVersion", _ =>
+        {
+            var version = Assembly.GetExecutingAssembly()
+                .GetName().Version?.ToString() ?? "1.0.0";
+            return Task.FromResult<object>(version);
+        });
     }
 
     /// <summary>
@@ -55,14 +95,20 @@ public partial class MainWindow : Window
             WebViewHost.SetupResourceMapping(coreWebView);
 
             // 加载前端入口页面
-            coreWebView.Navigate(WebViewHost.GetEntryPointUrl());
+            var url = WebViewHost.GetEntryPointUrl();
+            coreWebView.Navigate(url);
 
             // 注册 WebMessageReceived 事件 — 转发到 IpcRouter 处理
             WebView.WebMessageReceived += OnWebMessageReceived;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[MainWindow] WebView2 初始化失败: {ex}");
+            // 初始化失败时在窗口中显示错误信息
+            MessageBox.Show(
+                $"WebView2 初始化失败:\n\n{ex.Message}\n\n请确保系统已安装 WebView2 Runtime。",
+                "白鹤服务器",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
     }
 
@@ -87,7 +133,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[MainWindow] 处理 IPC 消息失败: {ex}");
+            // 记录错误到调试输出，避免静默失败
+            System.Diagnostics.Debug.WriteLine($"[IPC] 处理消息失败: {ex}");
         }
     }
 }

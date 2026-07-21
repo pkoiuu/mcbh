@@ -1,6 +1,7 @@
 // WebView2 封装 — 负责环境初始化、固定版本兜底和资源映射
 // 支持 WebView2FixedRuntime 目录作为固定版本运行时的兜底方案
 
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
@@ -54,7 +55,19 @@ public static class WebViewHost
     /// <param name="webView">已初始化的 CoreWebView2 实例</param>
     public static void SetupResourceMapping(CoreWebView2 webView)
     {
-        var assetsPath = Path.GetFullPath(AssetsFolder);
+        // 按优先级尝试多个可能的资源路径
+        var candidates = new[]
+        {
+            // 1. 工作目录下的 wwwroot
+            Path.GetFullPath(AssetsFolder),
+            // 2. 输出目录下的 wwwroot（发布后的标准位置）
+            Path.Combine(AppContext.BaseDirectory, AssetsFolder),
+            // 3. 开发时从 bin/Release/net10.0-windows/win-x64/ 回到项目目录
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", AssetsFolder),
+        };
+
+        var assetsPath = Array.Find(candidates, Directory.Exists) ?? candidates[0];
+
         webView.SetVirtualHostNameToFolderMapping(
             VirtualHostName,
             assetsPath,
