@@ -1,0 +1,123 @@
+# Release 构建 — 打 tag v* 自动构建完整安装包并发布到 GitHub Releases
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '11'
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            src/Baihe.UI/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('src/Baihe.UI/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build frontend
+        working-directory: src/Baihe.UI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Copy frontend to Host assets
+        run: |
+          New-Item -ItemType Directory -Force -Path src/Baihe.Host/assets
+          Copy-Item src/Baihe.UI/build/* src/Baihe.Host/assets/ -Recurse -Force
+
+      - name: Build JRE 21 with jlink
+        run: |
+          $jmods = "$env:JAVA_HOME\jmods"
+          jlink `
+            --module-path $jmods `
+            --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml `
+            --output dist\启动器\jre `
+            --strip-debug --no-man-files --no-header-files --compress=2
+
+      - name: Download WebView2 Fixed Runtime
+        run: |
+          # 下载 WebView2 固定版本（约 150MB）
+          $url = "https://go.microsoft.com/fwlink/p/?LinkId=2124702"
+          $zip = "WebView2Runtime.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          New-Item -ItemType Directory -Force -Path dist\启动器\WebView2FixedRuntime
+          Expand-Archive -Path $zip -DestinationPath dist\启动器\WebView2FixedRuntime -Force
+          Remove-Item $zip
+
+      - name: Download .minecraft Release Asset
+        run: |
+          # 从 v1.0-assets Release 下载预置的 .minecraft 完整包
+          gh release download v1.0-assets --pattern "minecraft.7z" --output minecraft.7z --clobber
+          7z x minecraft.7z -odist\ -y
+          Remove-Item minecraft.7z
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Baihe.Host
+        run: |
+          dotnet publish src/Baihe.Host/Baihe.Host.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:PublishReadyToRun=true `
+            -p:PublishTrimmed=false `
+            -o dist\启动器
+
+      - name: Copy installer resources
+        run: |
+          Copy-Item installer_resources\icon.ico dist\启动器\ -Force
+          Copy-Item fabric-installer.jar dist\启动器\ -Force
+
+      - name: Build installer with Inno Setup
+        run: |
+          # Windows Runner 预装 Inno Setup 6
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\baihe_installer.iss
+
+      - name: Upload installer to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer_output/BaiheServer_Setup_*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

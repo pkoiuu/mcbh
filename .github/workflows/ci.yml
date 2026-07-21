@@ -1,0 +1,66 @@
+# CI 编译验证 — 每次 push/PR 自动验证编译
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '11'
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            src/Baihe.UI/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('src/Baihe.UI/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build frontend
+        working-directory: src/Baihe.UI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Copy frontend to Host assets
+        run: |
+          New-Item -ItemType Directory -Force -Path src/Baihe.Host/assets
+          Copy-Item src/Baihe.UI/build/* src/Baihe.Host/assets/ -Recurse -Force
+
+      - name: Build Baihe.Core
+        run: dotnet build src/Baihe.Core/Baihe.Core.csproj -c Release
+
+      - name: Build Baihe.Host
+        run: dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release

@@ -1,0 +1,63 @@
+# ===== 构建产物 =====
+bin/
+obj/
+dist/
+installer_output/
+out/
+
+# ===== 前端 =====
+node_modules/
+src/Baihe.UI/build/
+src/Baihe.UI/.svelte-kit/
+src/Baihe.UI/build/
+*.tsbuildinfo
+
+# ===== IDE =====
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.vscode/
+
+# ===== 上游参考源码（不提交，仅本地参考） =====
+PCL2-CE/
+
+# ===== Inno Setup 工具链（CI 预装，本地已有，不需提交） =====
+tools/innosetup/
+
+# ===== 大文件资源（通过 CI 动态获取或 Release Asset 管理） =====
+installer_resources/jre/
+installer_resources/.minecraft/
+WebView2FixedRuntime/
+
+# ===== 构建安装包 =====
+*.7z
+*.exe
+!src/Baihe.Host/Assets/*.ico
+
+# ===== 临时文件 =====
+*.tmp
+*.bak
+*.log
+*.cache
+
+# ===== 设计稿源文件（已迁移到 src/Baihe.UI） =====
+designs/
+
+# ===== Trae 工作区 =====
+.trae/
+
+# ===== 旧产物（防止重新生成） =====
+baihe_installer.aip
+baihe_installer-SetupFiles/
+baihe_installer-cache/
+白鹤服务器启动器/
+白鹤服务器启动器_发布/
+白鹤服务器完整包/
+*.msi
+
+# ===== 操作系统 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
