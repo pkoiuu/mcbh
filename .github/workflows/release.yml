@@ -106,13 +106,16 @@ jobs:
 
       - name: Build installer with Inno Setup
         run: |
+          # 从 git tag 提取版本号 (v1.0.0 → 1.0.0)
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          Write-Host "Building installer version: $version"
           # Windows Runner 预装 Inno Setup 6
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\baihe_installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version installer\baihe_installer.iss
 
       - name: Upload installer to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: installer_output/BaiheServer_Setup_*.exe
+          files: dist/白鹤服务器启动器_Setup_*.exe
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
