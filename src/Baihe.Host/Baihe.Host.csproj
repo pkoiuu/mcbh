@@ -20,6 +20,10 @@
         <EnableWindowsTargeting>true</EnableWindowsTargeting>
         <OutputType>WinExe</OutputType>
         <UseWPF>true</UseWPF>
+        <!-- 修复 .NET 10 SDK 10.0.302 glob 展开问题: **/*.cs, **/*.xaml, **/*.resx 未被正确展开 -->
+        <EnableDefaultPageItems>false</EnableDefaultPageItems>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
         <LangVersion>14.0</LangVersion>
         <Nullable>enable</Nullable>
         <WarningLevel>4</WarningLevel>
@@ -54,5 +58,19 @@
     <!-- 项目引用 -->
     <ItemGroup>
         <ProjectReference Include="..\Baihe.Core\Baihe.Core.csproj" />
+    </ItemGroup>
+    <!-- 显式包含 XAML 页面 (修复 .NET 10 SDK glob 展开问题) -->
+    <ItemGroup>
+        <Page Include="MainWindow.xaml" />
+        <Page Include="Chrome\TitleBar.xaml" />
+    </ItemGroup>
+    <!-- 显式包含 C# 源文件 (修复 .NET 10 SDK glob 展开问题) -->
+    <ItemGroup>
+        <Compile Include="App.xaml.cs" />
+        <Compile Include="MainWindow.xaml.cs" />
+        <Compile Include="Chrome\TitleBar.xaml.cs" />
+        <Compile Include="Ipc\IpcMessage.cs" />
+        <Compile Include="Ipc\IpcRouter.cs" />
+        <Compile Include="Web\WebViewHost.cs" />
     </ItemGroup>
 </Project>
