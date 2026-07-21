@@ -1,11 +1,11 @@
 <!--
-  功能描述: 下载页 — 版本搜索 + 分类 tab + 版本卡片网格
-  技术实现: Svelte 5 runes，通过 IPC version.list 获取 Mojang 官方版本清单
-  注意事项: 版本分类 tab 带底部蓝色指示线，卡片含已安装标记
+  功能描述: 下载页 — 版本搜索 + 分类 tab + 版本卡片网格 + 下载进度
+  技术实现: Svelte 5 runes，通过 IPC version.list 获取版本清单，download.start 触发下载
+  注意事项: 监听 download.progress/complete/error 推送事件实时显示进度
 -->
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
-  import { ipc } from '../lib/ipc'
+  import { ipc, on } from '../lib/ipc'
 
   /** Mojang 版本条目 */
   interface VersionEntry {
@@ -26,6 +26,17 @@
     id: string
     version: string
     isInstalled: boolean
+  }
+
+  /** 下载进度数据 */
+  interface DownloadProgress {
+    phase: string
+    currentFile: string
+    completedFiles: number
+    totalFiles: number
+    downloadedBytes: number
+    totalBytes: number
+    percent: number
   }
 
   // 版本分类
@@ -49,12 +60,17 @@
   let isLoading = $state(true)
   let loadError = $state('')
 
+  // 下载状态
+  let downloadingVersion = $state('')
+  let downloadProgress = $state<DownloadProgress | null>(null)
+  let downloadError = $state('')
+  let downloadComplete = $state(false)
+
   /** 页面加载时获取版本清单和已安装实例 */
   async function loadData(): Promise<void> {
     isLoading = true
     loadError = ''
     try {
-      // 并行获取版本清单和已安装实例
       const [versionData, instances] = await Promise.all([
         ipc<VersionListResponse>('version.list'),
         ipc<GameInstance[]>('instance.list').catch(() => []),
@@ -69,6 +85,90 @@
     }
   }
 
+  /** 触发版本下载 */
+  async function handleDownload(versionId: string): Promise<void> {
+    if (downloadingVersion) return
+
+    downloadingVersion = versionId
+    downloadProgress = null
+    downloadError = ''
+    downloadComplete = false
+
+    try {
+      await ipc('download.start', versionId)
+    } catch (e: unknown) {
+      downloadError = e instanceof Error ? e.message : '启动下载失败'
+      downloadingVersion = ''
+    }
+  }
+
+  /** 触发 Fabric 安装 */
+  async function handleFabricInstall(gameVersion: string): Promise<void> {
+    if (downloadingVersion) return
+
+    downloadingVersion = `${gameVersion}-fabric`
+    downloadProgress = null
+    downloadError = ''
+    downloadComplete = false
+
+    try {
+      await ipc('fabric.install', gameVersion)
+    } catch (e: unknown) {
+      downloadError = e instanceof Error ? e.message : '启动 Fabric 安装失败'
+      downloadingVersion = ''
+    }
+  }
+
+  // 监听下载进度事件
+  on('download.progress', (data) => {
+    downloadProgress = data as DownloadProgress
+  })
+
+  on('download.complete', () => {
+    downloadComplete = true
+    downloadingVersion = ''
+    // 刷新已安装列表
+    loadData()
+    setTimeout(() => {
+      downloadProgress = null
+      downloadComplete = false
+    }, 3000)
+  })
+
+  on('download.error', (data) => {
+    downloadError = (data as { error: string }).error
+    downloadingVersion = ''
+  })
+
+  // 监听 Fabric 事件
+  on('fabric.progress', (data) => {
+    const d = data as { phase: string; message: string }
+    downloadProgress = {
+      phase: d.phase,
+      currentFile: d.message,
+      completedFiles: 0,
+      totalFiles: 1,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      percent: d.phase === 'downloading' ? 50 : 25,
+    }
+  })
+
+  on('fabric.complete', () => {
+    downloadComplete = true
+    downloadingVersion = ''
+    loadData()
+    setTimeout(() => {
+      downloadProgress = null
+      downloadComplete = false
+    }, 3000)
+  })
+
+  on('fabric.error', (data) => {
+    downloadError = (data as { error: string }).error
+    downloadingVersion = ''
+  })
+
   /** 根据分类筛选版本类型 */
   function matchCategory(version: VersionEntry, category: VersionCategory): boolean {
     switch (category) {
@@ -78,7 +178,6 @@
         return version.type === 'snapshot'
       case 'old':
         return version.type === 'old_beta' || version.type === 'old_alpha'
-      // Fabric / Forge 显示全部版本（加载器安装是 Stage 3 功能）
       case 'fabric':
       case 'forge':
         return version.type === 'release'
@@ -97,6 +196,16 @@
     }
   }
 
+  /** 格式化文件大小 */
+  function formatSize(bytes: number): string {
+    if (bytes === 0) return '—'
+    return bytes < 1024 * 1024
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : bytes < 1024 * 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+        : `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  }
+
   /** 版本类型中文标签 */
   function typeLabel(type: string): string {
     const labels: Record<string, string> = {
@@ -106,6 +215,18 @@
       old_alpha: '旧版 Alpha',
     }
     return labels[type] ?? type
+  }
+
+  /** 阶段中文标签 */
+  function phaseLabel(phase: string): string {
+    const labels: Record<string, string> = {
+      versionJson: '版本信息',
+      client: '客户端',
+      libraries: '库文件',
+      assetIndex: '资源索引',
+      assets: '资源文件',
+    }
+    return labels[phase] ?? phase
   }
 
   // 派生: 过滤后的版本列表
@@ -140,6 +261,69 @@
     </div>
   </header>
 
+  <!-- 下载进度条 -->
+  {#if downloadingVersion || downloadProgress || downloadError || downloadComplete}
+    <div class="mb-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow-sm)]">
+      {#if downloadError}
+        <div class="flex items-center gap-2 text-sm text-red-500">
+          <Icon name="circle-x" size={16} />
+          <span>下载失败: {downloadError}</span>
+        </div>
+      {:else if downloadComplete}
+        <div class="flex items-center gap-2 text-sm" style="color: var(--success);">
+          <Icon name="check-circle" size={16} />
+          <span>下载完成！实例已就绪。</span>
+        </div>
+      {:else if downloadProgress}
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between text-sm">
+            <span class="font-medium text-[var(--foreground)]">
+              {phaseLabel(downloadProgress.phase)}: {downloadProgress.currentFile}
+            </span>
+            <span class="text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">
+              {downloadProgress.completedFiles}/{downloadProgress.totalFiles}
+              {#if downloadProgress.totalBytes > 0}
+                · {formatSize(downloadProgress.downloadedBytes)}/{formatSize(downloadProgress.totalBytes)}
+              {/if}
+            </span>
+          </div>
+          <!-- 进度条 -->
+          <div class="h-2 w-full overflow-hidden rounded-full bg-[var(--background-200)]">
+            <div
+              class="h-full rounded-full bg-[var(--primary)] transition-[width] duration-300"
+              style="width: {downloadProgress.percent}%;"
+            ></div>
+          </div>
+          <div class="text-right text-xs text-[var(--muted-foreground)]">{downloadProgress.percent}%</div>
+        </div>
+      {:else}
+        <div class="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+          <div class="h-4 w-4 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent"></div>
+          <span>正在开始下载 {downloadingVersion}...</span>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Fabric/Forge 提示 -->
+  {#if activeCategory === 'fabric' || activeCategory === 'forge'}
+    <div class="mb-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-4 shadow-[var(--shadow-sm)]">
+      <div class="flex items-center gap-3">
+        <Icon name="info" size={18} class="shrink-0 text-[var(--primary)]" />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-[var(--foreground)]">
+            {activeCategory === 'fabric' ? 'Fabric Loader 安装' : 'Forge 安装'}
+          </p>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
+            {activeCategory === 'fabric'
+              ? '选择游戏版本后点击"安装 Fabric"按钮，将自动下载最新 Fabric Loader'
+              : 'Forge 安装功能将在后续版本中提供'}
+          </p>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- 版本分类 tab -->
   <div class="mb-5">
     <div class="flex items-center gap-6 border-b border-[var(--border)]" role="tablist" aria-label="版本分类">
@@ -163,7 +347,6 @@
   <!-- 版本卡片网格 -->
   <section class="mb-6 grid grid-cols-2 gap-4" aria-label="版本列表">
     {#if isLoading}
-      <!-- 加载中骨架屏 -->
       {#each Array(8) as _, i (i)}
         <div class="flex items-center justify-between gap-3 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-sm)]">
           <div class="flex-1">
@@ -173,7 +356,6 @@
         </div>
       {/each}
     {:else if loadError}
-      <!-- 加载失败 -->
       <div class="col-span-2 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-8 text-center">
         <p class="text-sm text-[var(--muted-foreground)]">{loadError}</p>
         <button
@@ -185,35 +367,48 @@
         </button>
       </div>
     {:else if filteredVersions.length === 0}
-      <!-- 无搜索结果 -->
       <div class="col-span-2 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-8 text-center">
         <p class="text-sm text-[var(--muted-foreground)]">未找到匹配的版本</p>
       </div>
     {:else}
-      <!-- 版本卡片列表 -->
       {#each filteredVersions as ver (ver.id)}
         <article class="relative flex items-center justify-between gap-3 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]">
-          {#if installedIds.has(ver.id)}
+          {#if installedIds.has(ver.id) || installedIds.has(`${ver.id}-fabric`)}
             <div class="absolute right-3 top-3 flex items-center gap-1 text-[var(--success)]">
               <Icon name="check-circle" size={14} />
-              <span class="text-[11px] font-medium whitespace-nowrap">已安装</span>
+              <span class="whitespace-nowrap text-[11px] font-medium">已安装</span>
             </div>
           {/if}
           <div class="min-w-0 flex-1">
             <div class="truncate text-[18px] font-semibold text-[var(--foreground)]" style="font-family: var(--font-mono);">{ver.id}</div>
             <div class="mt-1.5 flex items-center gap-2">
               <span class="whitespace-nowrap text-xs text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{formatDate(ver.releaseTime)}</span>
-              <span class="inline-flex items-center rounded-[6px] bg-[var(--background-200)] px-2 py-0.5 text-xs text-[var(--muted-foreground)] whitespace-nowrap">{typeLabel(ver.type)}</span>
+              <span class="inline-flex items-center rounded-[6px] bg-[var(--background-200)] px-2 py-0.5 text-xs whitespace-nowrap text-[var(--muted-foreground)]">{typeLabel(ver.type)}</span>
             </div>
           </div>
-          <button
-            type="button"
-            class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--background-200)] px-3.5 py-1.5 text-xs font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--background-300)]"
-            disabled={installedIds.has(ver.id)}
-          >
-            <Icon name="arrow-down" size={14} />
-            {installedIds.has(ver.id) ? '已安装' : '下载'}
-          </button>
+          {#if activeCategory === 'fabric'}
+            <!-- Fabric 安装按钮 -->
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--primary)] px-3.5 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] transition-[filter] hover:brightness-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!!downloadingVersion || installedIds.has(`${ver.id}-fabric`)}
+              onclick={() => handleFabricInstall(ver.id)}
+            >
+              <Icon name="arrow-down" size={14} />
+              {installedIds.has(`${ver.id}-fabric`) ? '已安装' : '安装 Fabric'}
+            </button>
+          {:else}
+            <!-- 普通下载按钮 -->
+            <button
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--background-200)] px-3.5 py-1.5 text-xs font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--background-300)] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!!downloadingVersion || installedIds.has(ver.id)}
+              onclick={() => handleDownload(ver.id)}
+            >
+              <Icon name="arrow-down" size={14} />
+              {installedIds.has(ver.id) ? '已安装' : '下载'}
+            </button>
+          {/if}
         </article>
       {/each}
     {/if}

@@ -81,6 +81,9 @@
         <Compile Include="Services\InstanceService.cs" />
         <Compile Include="Services\LaunchService.cs" />
         <Compile Include="Services\AuthService.cs" />
+        <!-- Stage 3: 下载服务 -->
+        <Compile Include="Services\DownloadService.cs" />
+        <Compile Include="Services\FabricService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

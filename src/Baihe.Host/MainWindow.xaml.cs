@@ -146,6 +146,46 @@ public partial class MainWindow : Window
         {
             return Task.FromResult(LaunchService.GetStatus());
         });
+
+        // ===== Stage 3: 下载与安装命令 =====
+
+        // 下载版本
+        _ipcRouter.Register("download.start", async args =>
+        {
+            var versionId = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            if (string.IsNullOrEmpty(versionId))
+                return new { success = false, error = "未指定版本 ID" };
+
+            // 异步执行下载，不阻塞 IPC 响应
+            _ = Task.Run(() => DownloadService.DownloadVersion(versionId));
+            return new { success = true, message = "下载已开始" };
+        });
+
+        _ipcRouter.Register("download.status", _ =>
+        {
+            return Task.FromResult(DownloadService.GetStatus());
+        });
+
+        // Fabric 安装
+        _ipcRouter.Register("fabric.install", async args =>
+        {
+            var gameVersion = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            if (string.IsNullOrEmpty(gameVersion))
+                return new { success = false, error = "未指定游戏版本" };
+
+            // 异步执行安装
+            _ = Task.Run(() => FabricService.Install(gameVersion));
+            return new { success = true, message = "Fabric 安装已开始" };
+        });
+
+        _ipcRouter.Register("fabric.loaders", async args =>
+        {
+            var gameVersion = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            return await FabricService.GetLoaders(gameVersion);
+        });
     }
 
     /// <summary>
@@ -170,6 +210,16 @@ public partial class MainWindow : Window
 
             // 设置虚拟主机名到文件夹映射 — 前端通过 https://baihe.app/ 访问本地资源
             WebViewHost.SetupResourceMapping(coreWebView);
+
+            // 设置 IPC 推送回调 — 后端主动向前端推送事件 (下载进度等)
+            IpcRouter.OnPushMessage = json =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (WebView.CoreWebView2 != null)
+                        WebView.CoreWebView2.PostWebMessageAsString(json);
+                });
+            };
 
             // 加载前端入口页面
             var url = WebViewHost.GetEntryPointUrl();

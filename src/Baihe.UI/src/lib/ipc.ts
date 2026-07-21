@@ -41,7 +41,18 @@ function initIpcListener(): void {
   }
 
   webview.addEventListener('message', (event: MessageEvent) => {
-    const data = event.data
+    let data = event.data
+
+    // WebView2 PostWebMessageAsString 发送的是 JSON 字符串，需要解析为对象
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data)
+      } catch {
+        // 非 JSON 字符串，忽略
+        return
+      }
+    }
+
     // 尝试解析为请求-响应
     if (data && typeof data === 'object' && 'id' in data) {
       const response = data as IpcResponse

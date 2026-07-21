@@ -55,6 +55,15 @@ public static class VersionService
     }
 
     /// <summary>
+    /// 获取指定版本的 JSON URL
+    /// </summary>
+    public static async Task<string?> GetVersionUrlAsync(string versionId)
+    {
+        var manifest = await GetManifestAsync();
+        return manifest.Versions.Find(v => v.Id == versionId)?.Url;
+    }
+
+    /// <summary>
     /// 获取完整版本清单 — 带缓存
     /// </summary>
     private static async Task<VersionManifest> GetManifestAsync()

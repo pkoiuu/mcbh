@@ -24,6 +24,23 @@ public class IpcRouter
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
+    /// 推送消息回调 — 后端主动向前端推送事件时调用
+    /// 由 MainWindow 在 WebView2 初始化后设置
+    /// </summary>
+    public static Action<string>? OnPushMessage { get; set; }
+
+    /// <summary>
+    /// 向前端推送事件 — 用于下载进度等主动通知
+    /// </summary>
+    /// <param name="type">事件类型</param>
+    /// <param name="data">事件数据</param>
+    public static void PushEvent(string type, object data)
+    {
+        var json = JsonSerializer.Serialize(new { type, data }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        OnPushMessage?.Invoke(json);
+    }
+
+    /// <summary>
     /// 创建 IPC 路由器实例，并注册内置命令
     /// </summary>
     public IpcRouter()
