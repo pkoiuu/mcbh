@@ -59,14 +59,14 @@ CloseApplications=no
 Name: "chinesesimplified"; MessagesFile: "installer_resources\ChineseSimplified.isl"
 
 [Files]
-; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等)
-Source: "dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,WebView2FixedRuntime\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等，排除 WebView2 安装程序)
+Source: "dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; JRE 运行时
 Source: "dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; WebView2 固定版本运行时
-Source: "dist\launcher\WebView2FixedRuntime\*"; DestDir: "{app}\WebView2FixedRuntime"; Flags: ignoreversion recursesubdirs createallsubdirs
+; WebView2 离线安装程序
+Source: "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; .minecraft 游戏文件 — 排除日志和备份
 Source: "dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,.fabric\*"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -80,6 +80,8 @@ Name: "{group}\白鹤服务器启动器"; Filename: "{app}\Baihe.exe"; IconFilen
 Name: "{group}\卸载白鹤服务器启动器"; Filename: "{uninstallexe}"
 
 [Run]
+; 安装 WebView2 Runtime (如果未安装)
+Filename: "{app}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; Check: not WebView2Installed(); Flags: waituntilterminated runhidden
 ; 安装完成后启动
 Filename: "{app}\Baihe.exe"; Description: "{cm:LaunchProgram,白鹤服务器启动器}"; Flags: nowait postinstall skipifsilent
 
@@ -91,6 +93,13 @@ Type: filesandordirs; Name: "{app}\.minecraft\saves"
 Type: filesandordirs; Name: "{app}\.minecraft\screenshots"
 
 [Code]
+// 检测 WebView2 Runtime 是否已安装
+function WebView2Installed(): Boolean;
+begin
+  Result := RegKeyExists(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')
+    or RegKeyExists(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}');
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;

@@ -71,15 +71,11 @@ jobs:
             --output dist\launcher\jre `
             --strip-debug --no-man-pages --no-header-files --compress=2
 
-      - name: Download WebView2 Fixed Runtime
+      - name: Download WebView2 Installer
         run: |
-          # 下载 WebView2 固定版本（约 150MB）
+          # 下载 WebView2 离线安装程序（约 2MB）
           $url = "https://go.microsoft.com/fwlink/p/?LinkId=2124702"
-          $zip = "WebView2Runtime.zip"
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          New-Item -ItemType Directory -Force -Path dist\launcher\WebView2FixedRuntime
-          Expand-Archive -Path $zip -DestinationPath dist\launcher\WebView2FixedRuntime -Force
-          Remove-Item $zip
+          Invoke-WebRequest -Uri $url -OutFile "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 
       - name: Download .minecraft Release Asset
         run: |
