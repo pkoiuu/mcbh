@@ -68,7 +68,7 @@ jobs:
           jlink `
             --module-path $jmods `
             --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml `
-            --output dist\启动器\jre `
+            --output dist\launcher\jre `
             --strip-debug --no-man-files --no-header-files --compress=2
 
       - name: Download WebView2 Fixed Runtime
@@ -77,8 +77,8 @@ jobs:
           $url = "https://go.microsoft.com/fwlink/p/?LinkId=2124702"
           $zip = "WebView2Runtime.zip"
           Invoke-WebRequest -Uri $url -OutFile $zip
-          New-Item -ItemType Directory -Force -Path dist\启动器\WebView2FixedRuntime
-          Expand-Archive -Path $zip -DestinationPath dist\启动器\WebView2FixedRuntime -Force
+          New-Item -ItemType Directory -Force -Path dist\launcher\WebView2FixedRuntime
+          Expand-Archive -Path $zip -DestinationPath dist\launcher\WebView2FixedRuntime -Force
           Remove-Item $zip
 
       - name: Download .minecraft Release Asset
@@ -97,12 +97,12 @@ jobs:
             -p:PublishSingleFile=false `
             -p:PublishReadyToRun=true `
             -p:PublishTrimmed=false `
-            -o dist\启动器
+            -o dist\launcher
 
       - name: Copy installer resources
         run: |
-          Copy-Item installer_resources\icon.ico dist\启动器\ -Force
-          Copy-Item fabric-installer.jar dist\启动器\ -Force
+          Copy-Item installer_resources\icon.ico dist\launcher\ -Force
+          Copy-Item fabric-installer.jar dist\launcher\ -Force
 
       - name: Build installer with Inno Setup
         run: |

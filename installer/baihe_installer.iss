@@ -60,13 +60,13 @@ Name: "chinesesimplified"; MessagesFile: "installer_resources\ChineseSimplified.
 
 [Files]
 ; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等)
-Source: "dist\启动器\*"; DestDir: "{app}"; Excludes: "jre\*,WebView2FixedRuntime\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,WebView2FixedRuntime\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; JRE 运行时
-Source: "dist\启动器\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; WebView2 固定版本运行时
-Source: "dist\启动器\WebView2FixedRuntime\*"; DestDir: "{app}\WebView2FixedRuntime"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\launcher\WebView2FixedRuntime\*"; DestDir: "{app}\WebView2FixedRuntime"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; .minecraft 游戏文件 — 排除日志和备份
 Source: "dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,.fabric\*"; Flags: recursesubdirs createallsubdirs ignoreversion
