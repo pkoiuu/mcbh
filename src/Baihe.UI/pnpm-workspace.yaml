@@ -1,3 +1,5 @@
+allowBuilds:
+  esbuild: set this to true or false
 # pnpm v11 配置文件
 # 使用 hoisted 模式，避免 Windows 上的符号链接 EBUSY 问题
 # 同时确保 CI 环境也使用 hoisted 模式，避免 .pnpm 隔离目录导致依赖解析失败

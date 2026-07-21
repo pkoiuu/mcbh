@@ -3,10 +3,12 @@
 
 using System;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Baihe.Host.Ipc;
+using Baihe.Host.Services;
 using Baihe.Host.Web;
 
 namespace Baihe.Host;
@@ -68,6 +70,81 @@ public partial class MainWindow : Window
             var version = Assembly.GetExecutingAssembly()
                 .GetName().Version?.ToString() ?? "1.0.0";
             return Task.FromResult<object>(version);
+        });
+
+        // ===== Stage 2: 启动核心命令 =====
+
+        // 版本清单
+        _ipcRouter.Register("version.list", async args =>
+        {
+            var typeFilter = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString() : null;
+            return await VersionService.GetVersionList(typeFilter);
+        });
+
+        // 实例管理
+        _ipcRouter.Register("instance.list", async _ =>
+        {
+            return await InstanceService.ListInstances();
+        });
+
+        _ipcRouter.Register("instance.current", async _ =>
+        {
+            return (await InstanceService.GetCurrentInstance())!;
+        });
+
+        // 认证
+        _ipcRouter.Register("auth.current", async _ =>
+        {
+            return await AuthService.GetCurrentAccount();
+        });
+
+        _ipcRouter.Register("auth.offline", async args =>
+        {
+            var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "Player";
+            return await AuthService.SetOfflineAccount(username);
+        });
+
+        // Java 检测
+        _ipcRouter.Register("java.detect", async _ =>
+        {
+            return await JavaHostService.DetectSystemJava();
+        });
+
+        _ipcRouter.Register("java.bundled", async _ =>
+        {
+            return (await JavaHostService.DetectBundledJava())!;
+        });
+
+        // 启动
+        _ipcRouter.Register("launch.start", async args =>
+        {
+            string instanceId = "";
+            bool quickPlay = true;
+
+            if (args?.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (args.Value.TryGetProperty("instanceId", out var idProp))
+                    instanceId = idProp.GetString() ?? "";
+                if (args.Value.TryGetProperty("quickPlay", out var qpProp))
+                    quickPlay = qpProp.GetBoolean();
+            }
+
+            // 如果未指定实例，使用当前实例
+            if (string.IsNullOrEmpty(instanceId))
+            {
+                var current = await InstanceService.GetCurrentInstance();
+                instanceId = current?.Id ?? "";
+            }
+
+            var account = await AuthService.GetCurrentAccount();
+            return await LaunchService.Launch(instanceId, account, quickPlay);
+        });
+
+        _ipcRouter.Register("launch.status", _ =>
+        {
+            return Task.FromResult(LaunchService.GetStatus());
         });
     }
 

@@ -1,10 +1,11 @@
 <!--
   功能描述: 设置页 — 双栏布局（分类导航 + 内容卡片）
-  技术实现: Svelte 5 runes，设置分类切换，后续接入 IPC 持久化
+  技术实现: Svelte 5 runes，通过 IPC 获取 Java 检测和账户信息
   注意事项: macOS 风格 toggle 开关，账户/游戏/外观/关于四个分类
 -->
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
+  import { ipc } from '../lib/ipc'
 
   // 设置分类
   type SettingsCategory = 'account' | 'game' | 'appearance' | 'about'
@@ -17,12 +18,99 @@
     { key: 'about', label: '关于', icon: 'info' },
   ]
 
-  // 游戏设置状态（后续从 IPC 获取/保存）
-  let javaPath = $state('C:\\Program Files\\Java\\jdk-17')
+  /** 账户信息 */
+  interface AccountInfo {
+    username: string
+    uuid: string
+    type: string
+  }
+
+  /** 捆绑 Java 检测结果 */
+  interface BundledJavaInfo {
+    found: boolean
+    path: string
+    version: string
+  }
+
+  /** 系统 Java 条目 */
+  interface SystemJavaEntry {
+    path: string
+    version: string
+    is64Bit: boolean
+  }
+
+  // 账户状态
+  let account = $state<AccountInfo | null>(null)
+  let isEditingName = $state(false)
+  let editingName = $state('')
+  let nameError = $state('')
+
+  // Java 状态
+  let bundledJava = $state<BundledJavaInfo | null>(null)
+  let systemJava = $state<SystemJavaEntry[]>([])
+  let javaLoading = $state(false)
+
+  // 游戏设置状态
   let memoryMB = $state(4096)
   let windowWidth = $state(1280)
   let windowHeight = $state(720)
   let autoFullscreen = $state(false)
+
+  /** 加载账户信息 */
+  async function loadAccount(): Promise<void> {
+    try {
+      account = await ipc<AccountInfo>('auth.current')
+    } catch {
+      // IPC 不可用时使用默认值
+    }
+  }
+
+  /** 加载 Java 检测信息 */
+  async function loadJavaInfo(): Promise<void> {
+    javaLoading = true
+    try {
+      const [bundled, system] = await Promise.all([
+        ipc<BundledJavaInfo>('java.bundled'),
+        ipc<SystemJavaEntry[]>('java.detect').catch(() => []),
+      ])
+      bundledJava = bundled
+      systemJava = system
+    } catch {
+      // IPC 不可用时使用默认值
+    } finally {
+      javaLoading = false
+    }
+  }
+
+  /** 保存用户名 */
+  async function saveUsername(): Promise<void> {
+    if (!editingName.trim()) {
+      nameError = '用户名不能为空'
+      return
+    }
+    if (editingName.length > 16) {
+      nameError = '用户名最多 16 个字符'
+      return
+    }
+    try {
+      account = await ipc<AccountInfo>('auth.offline', editingName.trim())
+      isEditingName = false
+      nameError = ''
+    } catch (e: unknown) {
+      nameError = e instanceof Error ? e.message : '保存失败'
+    }
+  }
+
+  /** 开始编辑用户名 */
+  function startEditName(): void {
+    editingName = account?.username ?? 'Player'
+    isEditingName = true
+    nameError = ''
+  }
+
+  // 组件挂载时加载数据
+  loadAccount()
+  loadJavaInfo()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -72,16 +160,32 @@
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">用户名</span>
                 <div class="flex items-center gap-3">
-                  <span class="truncate text-sm text-[var(--foreground)]">Player</span>
-                  <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70">修改</button>
+                  {#if isEditingName}
+                    <input
+                      type="text"
+                      class="h-8 w-32 rounded-lg border border-[var(--input)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
+                      bind:value={editingName}
+                      maxlength={16}
+                      aria-label="编辑用户名"
+                    />
+                    <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70" onclick={saveUsername}>保存</button>
+                    <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--muted-foreground)] transition-opacity hover:opacity-70" onclick={() => { isEditingName = false; nameError = '' }}>取消</button>
+                  {:else}
+                    <span class="truncate text-sm text-[var(--foreground)]">{account?.username ?? 'Player'}</span>
+                    <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70" onclick={startEditName}>修改</button>
+                  {/if}
                 </div>
+              </div>
+              {#if nameError}
+                <div class="py-2 text-[12px] text-red-500">{nameError}</div>
+              {/if}
+              <div class="flex items-center justify-between py-3">
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">UUID</span>
+                <span class="truncate text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{account?.uuid ?? '—'}</span>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">验证方式</span>
-                <div class="flex items-center gap-3">
-                  <span class="truncate text-sm text-[var(--foreground)]">离线模式</span>
-                  <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70">切换</button>
-                </div>
+                <span class="truncate text-sm text-[var(--foreground)]">离线模式</span>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">状态</span>
@@ -99,14 +203,38 @@
             <h2 class="text-base font-semibold text-[var(--foreground)]">游戏运行</h2>
             <p class="mt-1 text-[13px] text-[var(--muted-foreground)]">配置 Java 运行环境与启动参数</p>
             <div class="mt-4 divide-y divide-[var(--border)]">
-              <!-- Java 路径 -->
+              <!-- 捆绑 Java 检测 -->
               <div class="flex items-center justify-between py-3">
-                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">Java 路径</span>
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">捆绑 Java</span>
                 <div class="flex items-center gap-2">
-                  <div class="flex h-9 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]" style="width: 320px;">
-                    <input type="text" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" value={javaPath} readonly aria-label="Java 路径" />
-                  </div>
-                  <button type="button" class="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[var(--secondary)] px-4 text-[13px] font-medium text-[var(--secondary-foreground)] transition-colors hover:bg-[var(--muted)]">浏览</button>
+                  {#if javaLoading}
+                    <span class="text-sm text-[var(--muted-foreground)]">检测中...</span>
+                  {:else if bundledJava?.found}
+                    <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--success);" aria-hidden="true"></span>
+                    <span class="text-sm text-[var(--foreground)]" style="font-family: var(--font-mono);">{bundledJava.version}</span>
+                  {:else}
+                    <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--muted-foreground);" aria-hidden="true"></span>
+                    <span class="text-sm text-[var(--muted-foreground)]">未检测到</span>
+                  {/if}
+                </div>
+              </div>
+              <!-- 系统 Java 检测 -->
+              <div class="flex items-start justify-between py-3">
+                <span class="pt-2 whitespace-nowrap text-sm text-[var(--foreground)]">系统 Java</span>
+                <div class="flex flex-col items-end gap-1">
+                  {#if javaLoading}
+                    <span class="text-sm text-[var(--muted-foreground)]">检测中...</span>
+                  {:else if systemJava.length > 0}
+                    {#each systemJava as java (java.path)}
+                      <div class="flex items-center gap-2">
+                        <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--success);" aria-hidden="true"></span>
+                        <span class="text-sm text-[var(--foreground)]" style="font-family: var(--font-mono);">{java.version}</span>
+                        <span class="text-[11px] text-[var(--muted-foreground)]">{java.is64Bit ? '64-bit' : '32-bit'}</span>
+                      </div>
+                    {/each}
+                  {:else}
+                    <span class="text-sm text-[var(--muted-foreground)]">未检测到系统 Java</span>
+                  {/if}
                 </div>
               </div>
               <!-- 内存分配 -->

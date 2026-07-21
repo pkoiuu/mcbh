@@ -72,6 +72,15 @@
         <Compile Include="Ipc\IpcMessage.cs" />
         <Compile Include="Ipc\IpcRouter.cs" />
         <Compile Include="Web\WebViewHost.cs" />
+        <!-- Stage 2: 模型 -->
+        <Compile Include="Models\OfflineAccount.cs" />
+        <Compile Include="Models\GameInstance.cs" />
+        <!-- Stage 2: 服务 -->
+        <Compile Include="Services\JavaHostService.cs" />
+        <Compile Include="Services\VersionService.cs" />
+        <Compile Include="Services\InstanceService.cs" />
+        <Compile Include="Services\LaunchService.cs" />
+        <Compile Include="Services\AuthService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>
