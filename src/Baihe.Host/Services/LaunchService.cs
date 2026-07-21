@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Baihe.Host.Ipc;
 using Baihe.Host.Models;
 
 namespace Baihe.Host.Services;
@@ -32,7 +33,7 @@ public static class LaunchService
     /// <summary>
     /// 启动游戏
     /// </summary>
-    public static async Task<object> Launch(string instanceId, OfflineAccount account, bool quickPlay)
+    public static async Task<object> Launch(string instanceId, OfflineAccount account, bool quickPlay, LauncherSettings? settings = null)
     {
         if (_state == LaunchState.Running || _state == LaunchState.Launching)
         {
@@ -43,6 +44,7 @@ public static class LaunchService
         {
             _state = LaunchState.Preparing;
             _stateMessage = "正在准备启动...";
+            IpcRouter.PushEvent("launch.state", new { state = "preparing", message = _stateMessage });
 
             // 1. 获取 .minecraft 目录
             var mcDir = InstanceService.GetMcDirectory();
@@ -63,9 +65,11 @@ public static class LaunchService
             using var doc = JsonDocument.Parse(versionJson);
             var root = doc.RootElement;
 
-            // 3. 查找 Java
+            // 3. 查找 Java — 优先使用设置中的覆盖路径
             _stateMessage = "正在检测 Java 运行时...";
-            var javaPath = await FindJava(root);
+            var javaPath = !string.IsNullOrEmpty(settings?.JavaPathOverride) && File.Exists(settings.JavaPathOverride)
+                ? settings.JavaPathOverride
+                : await FindJava(root);
             if (javaPath == null)
             {
                 return new { success = false, error = "未找到可用的 Java 运行时。请将 JRE 放在 jre/bin/java.exe 或安装系统 Java。" };
@@ -83,16 +87,19 @@ public static class LaunchService
             var versionId = root.TryGetProperty("id", out var idProp) ? idProp.GetString()! : instanceId;
             var assetsDir = Path.Combine(mcDir, "assets");
             var gameDir = mcDir;
+            var assetsIndex = root.TryGetProperty("assetIndex", out var ai) && ai.TryGetProperty("id", out var aiId)
+                ? aiId.GetString()! : versionId;
 
             // 解析 Minecraft 版本号判断 QuickPlay 模式
             var majorVersion = ExtractMajorVersion(versionId);
 
-            var jvmArgs = BuildJvmArgs(javaPath, classpath, mcDir, root, account);
-            var gameArgs = BuildGameArgs(root, versionId, gameDir, assetsDir, account, quickPlay, majorVersion);
+            var jvmArgs = BuildJvmArgs(javaPath, classpath, mcDir, root, account, settings);
+            var gameArgs = BuildGameArgs(root, versionId, gameDir, assetsDir, account, quickPlay, majorVersion, settings, assetsIndex);
 
             // 7. 启动进程
             _state = LaunchState.Launching;
             _stateMessage = "正在启动游戏...";
+            IpcRouter.PushEvent("launch.state", new { state = "launching", message = _stateMessage });
 
             var allArgs = jvmArgs.Concat(new[] { mainClass }).Concat(gameArgs);
 
@@ -117,14 +124,17 @@ public static class LaunchService
             _processId = process.Id;
             _state = LaunchState.Running;
             _stateMessage = "游戏已启动";
+            IpcRouter.PushEvent("launch.started", new { processId = process.Id });
 
             // 异步监控进程退出
             _ = Task.Run(() =>
             {
                 process.WaitForExit();
+                var exitCode = process.ExitCode;
                 _state = LaunchState.Idle;
-                _stateMessage = "游戏已退出";
+                _stateMessage = exitCode == 0 ? "游戏已退出" : $"游戏异常退出 (code: {exitCode})";
                 _processId = null;
+                IpcRouter.PushEvent("launch.exited", new { exitCode, abnormal = exitCode != 0 });
             });
 
             return new { success = true, processId = process.Id };
@@ -133,6 +143,7 @@ public static class LaunchService
         {
             _state = LaunchState.Idle;
             _stateMessage = $"启动失败: {ex.Message}";
+            IpcRouter.PushEvent("launch.state", new { state = "error", message = ex.Message });
             return new { success = false, error = ex.Message };
         }
     }
@@ -290,12 +301,13 @@ public static class LaunchService
     /// <summary>
     /// 构建 JVM 参数
     /// </summary>
-    private static List<string> BuildJvmArgs(string javaPath, string classpath, string mcDir, JsonElement root, OfflineAccount account)
+    private static List<string> BuildJvmArgs(string javaPath, string classpath, string mcDir, JsonElement root, OfflineAccount account, LauncherSettings? settings)
     {
         var args = new List<string>();
 
-        // 内存分配
-        args.Add("-Xmx2G");
+        // 内存分配 — 从设置中读取
+        var memoryMB = settings?.MemoryMB ?? 4096;
+        args.Add($"-Xmx{memoryMB}M");
         args.Add("-Xms512M");
 
         // 日4j2 配置（如果存在）
@@ -353,7 +365,7 @@ public static class LaunchService
     /// <summary>
     /// 构建游戏参数
     /// </summary>
-    private static List<string> BuildGameArgs(JsonElement root, string versionId, string gameDir, string assetsDir, OfflineAccount account, bool quickPlay, int majorVersion)
+    private static List<string> BuildGameArgs(JsonElement root, string versionId, string gameDir, string assetsDir, OfflineAccount account, bool quickPlay, int majorVersion, LauncherSettings? settings, string assetsIndex)
     {
         var args = new List<string>();
 
@@ -366,7 +378,7 @@ public static class LaunchService
             {
                 if (arg.ValueKind == JsonValueKind.String)
                 {
-                    var str = ReplaceVariables(arg.GetString()!, versionId, gameDir, assetsDir, account);
+                    var str = ReplaceVariables(arg.GetString()!, versionId, gameDir, assetsDir, account, assetsIndex);
                     args.Add(str);
                 }
                 else if (arg.ValueKind == JsonValueKind.Object)
@@ -377,11 +389,11 @@ public static class LaunchService
                     if (arg.TryGetProperty("value", out var value))
                     {
                         if (value.ValueKind == JsonValueKind.String)
-                            args.Add(ReplaceVariables(value.GetString()!, versionId, gameDir, assetsDir, account));
+                            args.Add(ReplaceVariables(value.GetString()!, versionId, gameDir, assetsDir, account, assetsIndex));
                         else if (value.ValueKind == JsonValueKind.Array)
                             foreach (var v in value.EnumerateArray())
                                 if (v.ValueKind == JsonValueKind.String)
-                                    args.Add(ReplaceVariables(v.GetString()!, versionId, gameDir, assetsDir, account));
+                                    args.Add(ReplaceVariables(v.GetString()!, versionId, gameDir, assetsDir, account, assetsIndex));
                     }
                 }
             }
@@ -393,7 +405,21 @@ public static class LaunchService
             var parts = template.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             foreach (var part in parts)
             {
-                args.Add(ReplaceVariables(part, versionId, gameDir, assetsDir, account));
+                args.Add(ReplaceVariables(part, versionId, gameDir, assetsDir, account, assetsIndex));
+            }
+        }
+
+        // 添加窗口尺寸参数 (如果设置中有值)
+        if (settings != null)
+        {
+            args.Add("--width");
+            args.Add(settings.WindowWidth.ToString());
+            args.Add("--height");
+            args.Add(settings.WindowHeight.ToString());
+
+            if (settings.AutoFullscreen)
+            {
+                args.Add("--fullscreen");
             }
         }
 
@@ -422,14 +448,14 @@ public static class LaunchService
     /// <summary>
     /// 替换变量占位符
     /// </summary>
-    private static string ReplaceVariables(string template, string versionId, string gameDir, string assetsDir, OfflineAccount account)
+    private static string ReplaceVariables(string template, string versionId, string gameDir, string assetsDir, OfflineAccount account, string assetsIndex)
     {
         return template
             .Replace("${auth_player_name}", account.Username)
             .Replace("${version_name}", versionId)
             .Replace("${game_directory}", gameDir)
             .Replace("${assets_root}", assetsDir)
-            .Replace("${assets_index_name}", GetAssetsIndex(versionId))
+            .Replace("${assets_index_name}", assetsIndex)
             .Replace("${auth_uuid}", account.Uuid)
             .Replace("${auth_access_token}", account.AccessToken)
             .Replace("${user_type}", "legacy")

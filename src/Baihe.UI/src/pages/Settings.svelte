@@ -39,6 +39,19 @@
     is64Bit: boolean
   }
 
+  /** 启动器设置 */
+  interface LauncherSettings {
+    memoryMB: number
+    windowWidth: number
+    windowHeight: number
+    autoFullscreen: boolean
+    javaPathOverride: string | null
+    closeAfterLaunch: boolean
+    serverAddress: string
+    serverPort: number
+    quickPlayEnabled: boolean
+  }
+
   // 账户状态
   let account = $state<AccountInfo | null>(null)
   let isEditingName = $state(false)
@@ -50,11 +63,21 @@
   let systemJava = $state<SystemJavaEntry[]>([])
   let javaLoading = $state(false)
 
-  // 游戏设置状态
+  // 游戏设置状态 — 从后端加载
   let memoryMB = $state(4096)
   let windowWidth = $state(1280)
   let windowHeight = $state(720)
   let autoFullscreen = $state(false)
+  let closeAfterLaunch = $state(false)
+  let quickPlayEnabled = $state(true)
+  let settingsLoaded = $state(false)
+  let settingsSaving = $state(false)
+
+  // 内存滑块临时值
+  let memorySlider = $state(4)
+
+  /** 内存选项 (GB) */
+  const memoryOptions = [2, 3, 4, 6, 8, 12, 16]
 
   /** 加载账户信息 */
   async function loadAccount(): Promise<void> {
@@ -80,6 +103,61 @@
     } finally {
       javaLoading = false
     }
+  }
+
+  /** 加载设置 */
+  async function loadSettings(): Promise<void> {
+    try {
+      const s = await ipc<LauncherSettings>('settings.get')
+      memoryMB = s.memoryMB
+      windowWidth = s.windowWidth
+      windowHeight = s.windowHeight
+      autoFullscreen = s.autoFullscreen
+      closeAfterLaunch = s.closeAfterLaunch
+      quickPlayEnabled = s.quickPlayEnabled
+      // 同步内存滑块位置
+      const gb = Math.round(memoryMB / 1024)
+      memorySlider = memoryOptions.indexOf(gb) >= 0 ? memoryOptions.indexOf(gb) : 4
+    } catch {
+      // IPC 不可用时使用默认值
+    } finally {
+      settingsLoaded = true
+    }
+  }
+
+  /** 保存设置 — 防抖保存 */
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  async function saveSettings(): Promise<void> {
+    if (!settingsLoaded) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(async () => {
+      settingsSaving = true
+      try {
+        await ipc('settings.set', {
+          memoryMB,
+          windowWidth,
+          windowHeight,
+          autoFullscreen,
+          closeAfterLaunch,
+          quickPlayEnabled,
+        })
+      } catch {
+        // 保存失败静默处理
+      } finally {
+        settingsSaving = false
+      }
+    }, 500)
+  }
+
+  /** 内存滑块变更 */
+  function onMemoryChange(): void {
+    memoryMB = memoryOptions[memorySlider] * 1024
+    saveSettings()
+  }
+
+  /** 窗口尺寸变更 */
+  function onSizeChange(): void {
+    saveSettings()
   }
 
   /** 保存用户名 */
@@ -111,6 +189,7 @@
   // 组件挂载时加载数据
   loadAccount()
   loadJavaInfo()
+  loadSettings()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -241,10 +320,20 @@
               <div class="flex items-start justify-between py-3">
                 <span class="pt-2 whitespace-nowrap text-sm text-[var(--foreground)]">内存分配</span>
                 <div class="flex flex-col gap-1" style="width: 320px;">
-                  <div class="flex h-9 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]">
-                    <input type="text" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" value="{memoryMB} MB" readonly aria-label="内存分配" />
+                  <div class="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max={memoryOptions.length - 1}
+                      step="1"
+                      bind:value={memorySlider}
+                      onchange={onMemoryChange}
+                      class="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--background-300)] accent-[var(--primary)]"
+                      aria-label="内存分配"
+                    />
+                    <span class="w-16 shrink-0 text-right text-sm font-medium text-[var(--foreground)]" style="font-family: var(--font-mono);">{Math.round(memoryMB / 1024)} GB</span>
                   </div>
-                  <span class="text-xs text-[var(--muted-foreground)]">建议分配 2-4 GB</span>
+                  <span class="text-xs text-[var(--muted-foreground)]">建议分配 2-4 GB{settingsSaving ? ' · 保存中...' : ''}</span>
                 </div>
               </div>
               <!-- 游戏窗口尺寸 -->
@@ -252,11 +341,11 @@
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">游戏窗口</span>
                 <div class="flex items-center gap-2">
                   <div class="flex h-9 w-20 shrink-0 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]">
-                    <input type="text" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" value={windowWidth} readonly aria-label="游戏窗口宽度" />
+                    <input type="number" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" bind:value={windowWidth} onchange={onSizeChange} min="640" aria-label="游戏窗口宽度" />
                   </div>
                   <span class="shrink-0 text-sm text-[var(--muted-foreground)]">×</span>
                   <div class="flex h-9 w-20 shrink-0 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]">
-                    <input type="text" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" value={windowHeight} readonly aria-label="游戏窗口高度" />
+                    <input type="number" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" bind:value={windowHeight} onchange={onSizeChange} min="480" aria-label="游戏窗口高度" />
                   </div>
                   <span class="shrink-0 whitespace-nowrap text-sm text-[var(--muted-foreground)]">像素</span>
                 </div>
@@ -271,9 +360,39 @@
                   aria-label="启动后自动全屏"
                   class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
                   style="background-color: {autoFullscreen ? 'var(--primary)' : 'var(--background-300)'};"
-                  onclick={() => (autoFullscreen = !autoFullscreen)}
+                  onclick={() => { autoFullscreen = !autoFullscreen; saveSettings() }}
                 >
                   <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({autoFullscreen ? '22px' : '2px'});"></span>
+                </button>
+              </div>
+              <!-- QuickPlay 自动连接 -->
+              <div class="flex items-center justify-between py-3">
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">QuickPlay 自动连接</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={quickPlayEnabled}
+                  aria-label="QuickPlay 自动连接"
+                  class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
+                  style="background-color: {quickPlayEnabled ? 'var(--primary)' : 'var(--background-300)'};"
+                  onclick={() => { quickPlayEnabled = !quickPlayEnabled; saveSettings() }}
+                >
+                  <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({quickPlayEnabled ? '22px' : '2px'});"></span>
+                </button>
+              </div>
+              <!-- 启动后关闭启动器 -->
+              <div class="flex items-center justify-between py-3">
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">启动后关闭启动器</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={closeAfterLaunch}
+                  aria-label="启动后关闭启动器"
+                  class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
+                  style="background-color: {closeAfterLaunch ? 'var(--primary)' : 'var(--background-300)'};"
+                  onclick={() => { closeAfterLaunch = !closeAfterLaunch; saveSettings() }}
+                >
+                  <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({closeAfterLaunch ? '22px' : '2px'});"></span>
                 </button>
               </div>
             </div>

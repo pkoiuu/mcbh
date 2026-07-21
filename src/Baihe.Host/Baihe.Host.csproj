@@ -84,6 +84,9 @@
         <!-- Stage 3: 下载服务 -->
         <Compile Include="Services\DownloadService.cs" />
         <Compile Include="Services\FabricService.cs" />
+        <!-- Stage 5: 设置与状态服务 -->
+        <Compile Include="Services\SettingsService.cs" />
+        <Compile Include="Services\ServerStatusService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

@@ -117,7 +117,7 @@ public partial class MainWindow : Window
             return (await JavaHostService.DetectBundledJava())!;
         });
 
-        // 启动
+        // 启动 — 加载设置并传递给启动服务
         _ipcRouter.Register("launch.start", async args =>
         {
             string instanceId = "";
@@ -139,7 +139,8 @@ public partial class MainWindow : Window
             }
 
             var account = await AuthService.GetCurrentAccount();
-            return await LaunchService.Launch(instanceId, account, quickPlay);
+            var settings = await SettingsService.GetAsync();
+            return await LaunchService.Launch(instanceId, account, quickPlay, settings);
         });
 
         _ipcRouter.Register("launch.status", _ =>
@@ -185,6 +186,26 @@ public partial class MainWindow : Window
             var gameVersion = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "";
             return await FabricService.GetLoaders(gameVersion);
+        });
+
+        // ===== Stage 5: 设置与服务器状态命令 =====
+
+        // 获取设置
+        _ipcRouter.Register("settings.get", async _ =>
+        {
+            return await SettingsService.GetAsync();
+        });
+
+        // 更新设置
+        _ipcRouter.Register("settings.set", async args =>
+        {
+            return await SettingsService.SetAsync(args ?? default);
+        });
+
+        // 服务器状态检查
+        _ipcRouter.Register("server.status", async _ =>
+        {
+            return await ServerStatusService.CheckStatus();
         });
     }
 

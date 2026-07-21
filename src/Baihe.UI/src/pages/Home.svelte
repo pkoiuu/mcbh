@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
-  import { ipc } from '../lib/ipc'
+  import { ipc, on } from '../lib/ipc'
 
   /** 实例信息 */
   interface GameInstance {
@@ -26,15 +26,44 @@
     error?: string
   }
 
+  /** 服务器状态 */
+  interface ServerStatus {
+    online: boolean
+    latency: number
+    address: string
+    port: number
+  }
+
+  /** 启动推送事件数据 */
+  interface LaunchStateEvent {
+    state: string
+    message: string
+  }
+
+  interface LaunchStartedEvent {
+    processId: number
+  }
+
+  interface LaunchExitedEvent {
+    exitCode: number
+    abnormal: boolean
+  }
+
   // 实例状态
   let instance = $state<GameInstance | null>(null)
   let isLoading = $state(true)
   let loadError = $state('')
 
-  // 启动状态
+  // 启动状态 — 通过推送事件更新
   let isLaunching = $state(false)
   let launchError = $state('')
+  let launchMessage = $state('')
   let launchSuccess = $state(false)
+  let gameRunning = $state(false)
+
+  // 服务器状态
+  let serverStatus = $state<ServerStatus | null>(null)
+  let serverChecking = $state(false)
 
   /** 快捷工具列表 */
   const tools = [
@@ -64,11 +93,24 @@
     }
   }
 
+  /** 检查服务器状态 */
+  async function checkServerStatus(): Promise<void> {
+    serverChecking = true
+    try {
+      serverStatus = await ipc<ServerStatus>('server.status')
+    } catch {
+      serverStatus = null
+    } finally {
+      serverChecking = false
+    }
+  }
+
   /** 处理启动按钮点击 — 调用 IPC 启动游戏 */
   async function handleLaunch(): Promise<void> {
-    if (isLaunching || !instance) return
+    if (isLaunching || gameRunning || !instance) return
     isLaunching = true
     launchError = ''
+    launchMessage = '正在准备启动...'
     launchSuccess = false
 
     try {
@@ -76,35 +118,95 @@
         instanceId: instance.id,
         quickPlay: true,
       })
-      if (result.success) {
-        launchSuccess = true
-        // 3 秒后重置成功状态
-        setTimeout(() => {
-          launchSuccess = false
-        }, 3000)
-      } else {
+      if (!result.success) {
         launchError = result.error || '启动失败'
+        isLaunching = false
       }
+      // 成功时等待 launch.started 推送事件来更新状态
     } catch (e: unknown) {
       launchError = e instanceof Error ? e.message : '启动失败'
-    } finally {
       isLaunching = false
     }
   }
 
-  // 组件挂载时加载实例
+  // 注册推送事件监听器 — 在组件初始化时注册
+  $effect(() => {
+    // 启动状态变更 (preparing/launching/error)
+    const offState = on('launch.state', (data) => {
+      const evt = data as LaunchStateEvent
+      launchMessage = evt.message
+      if (evt.state === 'error') {
+        launchError = evt.message
+        isLaunching = false
+        gameRunning = false
+      }
+    })
+
+    // 游戏进程已启动
+    const offStarted = on('launch.started', (data) => {
+      const evt = data as LaunchStartedEvent
+      isLaunching = false
+      gameRunning = true
+      launchSuccess = true
+      launchMessage = '游戏已启动，正在连接白鹤服务器'
+      // 5 秒后隐藏成功提示
+      setTimeout(() => { launchSuccess = false }, 5000)
+    })
+
+    // 游戏进程已退出
+    const offExited = on('launch.exited', (data) => {
+      const evt = data as LaunchExitedEvent
+      gameRunning = false
+      isLaunching = false
+      if (evt.abnormal) {
+        launchError = `游戏异常退出 (code: ${evt.exitCode})`
+        launchMessage = ''
+      } else {
+        launchMessage = '游戏已正常退出'
+        setTimeout(() => { launchMessage = '' }, 3000)
+      }
+    })
+
+    // 组件卸载时清理监听器和定时器
+    const statusInterval = setInterval(checkServerStatus, 60000)
+    return () => {
+      offState()
+      offStarted()
+      offExited()
+      clearInterval(statusInterval)
+    }
+  })
+
+  // 组件挂载时加载数据
   loadInstance()
+  checkServerStatus()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
   <div class="flex flex-col gap-8">
-    <!-- 1. 欢迎标题区 -->
-    <section>
-      <div class="text-[13px] font-semibold tracking-wide text-[var(--muted-foreground)]">欢迎回来</div>
-      <h1 class="mt-1.5 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-[var(--foreground)]" style="text-wrap: balance;">
-        开始你的冒险
-      </h1>
-      <p class="mt-1.5 text-[15px] text-[var(--muted-foreground)]">选择实例，启程前往方块世界</p>
+    <!-- 1. 欢迎标题区 + 服务器状态 -->
+    <section class="flex items-end justify-between">
+      <div>
+        <div class="text-[13px] font-semibold tracking-wide text-[var(--muted-foreground)]">欢迎回来</div>
+        <h1 class="mt-1.5 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-[var(--foreground)]" style="text-wrap: balance;">
+          开始你的冒险
+        </h1>
+        <p class="mt-1.5 text-[15px] text-[var(--muted-foreground)]">选择实例，启程前往方块世界</p>
+      </div>
+      <!-- 服务器状态指示器 -->
+      <div class="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 shadow-[var(--shadow-sm)]">
+        {#if serverChecking}
+          <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--muted-foreground)]" aria-hidden="true"></span>
+          <span class="text-[13px] text-[var(--muted-foreground)]">检测中...</span>
+        {:else if serverStatus?.online}
+          <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--success);" aria-hidden="true"></span>
+          <span class="text-[13px] font-medium text-[var(--foreground)]">服务器在线</span>
+          <span class="text-[12px] text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{serverStatus.latency}ms</span>
+        {:else}
+          <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--destructive);" aria-hidden="true"></span>
+          <span class="text-[13px] text-[var(--muted-foreground)]">服务器离线</span>
+        {/if}
+      </div>
     </section>
 
     <!-- 2. 当前实例大卡片 -->
@@ -150,6 +252,15 @@
               <span aria-hidden="true">·</span>
               <span class="whitespace-nowrap">已安装 {instance.modCount} 个 Mod</span>
             </div>
+            <!-- 启动进度消息 -->
+            {#if launchMessage && !launchError}
+              <div class="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-[var(--primary)]">
+                {#if isLaunching}
+                  <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" aria-hidden="true"></span>
+                {/if}
+                {launchMessage}
+              </div>
+            {/if}
             <!-- 启动错误提示 -->
             {#if launchError}
               <div class="mt-2 text-[12px] font-medium text-red-500">{launchError}</div>
@@ -163,15 +274,17 @@
             <button
               type="button"
               class="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-full bg-[var(--primary)] px-6 text-[15px] font-semibold text-[var(--primary-foreground)] shadow-[var(--shadow-sm)] transition-[filter] hover:brightness-[0.96] focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={isLaunching || !instance.isInstalled}
+              disabled={isLaunching || gameRunning || !instance.isInstalled}
               onclick={handleLaunch}
             >
               <Icon name="circle-play" size={18} />
-              <span>{isLaunching ? '启动中...' : launchSuccess ? '已启动' : '启动游戏'}</span>
+              <span>{gameRunning ? '运行中' : isLaunching ? '启动中...' : launchSuccess ? '已启动' : '启动游戏'}</span>
             </button>
             <span class="text-[12px] text-[var(--muted-foreground)]">
               {#if !instance.isInstalled}
                 版本未安装
+              {:else if gameRunning}
+                游戏正在运行
               {:else}
                 QuickPlay 直连白鹤服务器
               {/if}
