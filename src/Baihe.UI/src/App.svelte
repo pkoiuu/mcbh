@@ -6,7 +6,7 @@
 <script lang="ts">
   import WindowShell from './components/WindowShell.svelte'
   import Sidebar from './components/Sidebar.svelte'
-  import { router } from './lib/router'
+  import { router } from './lib/router.svelte'
   import Home from './pages/Home.svelte'
   import Download from './pages/Download.svelte'
   import Settings from './pages/Settings.svelte'

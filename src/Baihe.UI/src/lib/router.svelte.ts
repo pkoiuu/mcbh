@@ -2,6 +2,7 @@
  * 功能描述: 轻量路由 — 基于 Svelte 5 runes 的页面状态管理
  * 技术实现: 使用 $state rune 维护当前页面，不引入路由库
  * 注意事项: 页面切换通过 navigate() 函数触发
+ * 文件扩展名: .svelte.ts — Svelte 5 要求在 .ts 文件中使用 runes 必须用此扩展名
  */
 
 /** 页面类型 */

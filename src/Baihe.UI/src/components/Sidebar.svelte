@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
-  import { router, navItems } from '../lib/router'
+  import { router, navItems } from '../lib/router.svelte'
   import type { Snippet } from 'svelte'
 
   interface Props {

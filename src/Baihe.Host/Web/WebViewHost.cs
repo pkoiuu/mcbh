@@ -50,6 +50,11 @@ public static class WebViewHost
     }
 
     /// <summary>
+    /// 实际使用的资源路径 — 供诊断日志使用
+    /// </summary>
+    public static string ResolvedAssetsPath { get; private set; } = "";
+
+    /// <summary>
     /// 设置虚拟主机名到文件夹的映射 — 前端可通过 https://baihe.app/ 访问本地资源
     /// </summary>
     /// <param name="webView">已初始化的 CoreWebView2 实例</param>
@@ -67,6 +72,19 @@ public static class WebViewHost
         };
 
         var assetsPath = Array.Find(candidates, Directory.Exists) ?? candidates[0];
+        ResolvedAssetsPath = assetsPath;
+
+        // 写入诊断日志 — 记录实际使用的资源路径和所有候选路径
+        var debugLog = $"AssetsPath: {assetsPath}\nExists: {Directory.Exists(assetsPath)}\n";
+        debugLog += $"IndexHtml exists: {File.Exists(Path.Combine(assetsPath, "index.html"))}\n";
+        debugLog += "Candidates:\n";
+        foreach (var c in candidates)
+            debugLog += $"  {c} -> Exists: {Directory.Exists(c)}\n";
+        try
+        {
+            File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "debug-paths.txt"), debugLog);
+        }
+        catch { }
 
         webView.SetVirtualHostNameToFolderMapping(
             VirtualHostName,
@@ -75,11 +93,11 @@ public static class WebViewHost
     }
 
     /// <summary>
-    /// 获取前端入口 URL
+    /// 获取前端入口 URL — 带时间戳缓存清除参数
     /// </summary>
-    /// <returns>https://baihe.app/index.html</returns>
+    /// <returns>https://baihe.app/index.html?v={timestamp}</returns>
     public static string GetEntryPointUrl()
     {
-        return $"https://{VirtualHostName}/index.html";
+        return $"https://{VirtualHostName}/index.html?v={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
     }
 }

@@ -229,8 +229,28 @@ public partial class MainWindow : Window
 
             var coreWebView = WebView.CoreWebView2;
 
+            // 设置 WebView2 背景色为深色，避免加载期间白屏
+            WebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0x1A, 0x1A, 0x1C);
+
             // 设置虚拟主机名到文件夹映射 — 前端通过 https://baihe.app/ 访问本地资源
             WebViewHost.SetupResourceMapping(coreWebView);
+
+            // 导航完成事件 — 仅捕获加载失败，成功时无需额外处理
+            coreWebView.NavigationCompleted += (_, e) =>
+            {
+                if (!e.IsSuccess)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[WebView2] 导航失败: {e.WebErrorStatus}");
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show(
+                            $"前端页面加载失败: {e.WebErrorStatus}\n\n资源路径: {WebViewHost.GetEntryPointUrl()}",
+                            "白鹤服务器",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    });
+                }
+            };
 
             // 设置 IPC 推送回调 — 后端主动向前端推送事件 (下载进度等)
             IpcRouter.OnPushMessage = json =>
@@ -244,6 +264,7 @@ public partial class MainWindow : Window
 
             // 加载前端入口页面
             var url = WebViewHost.GetEntryPointUrl();
+            System.Diagnostics.Debug.WriteLine($"[WebView2] 导航到: {url}");
             coreWebView.Navigate(url);
 
             // 注册 WebMessageReceived 事件 — 转发到 IpcRouter 处理
