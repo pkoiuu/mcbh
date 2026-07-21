@@ -73,4 +73,8 @@
         <Compile Include="Ipc\IpcRouter.cs" />
         <Compile Include="Web\WebViewHost.cs" />
     </ItemGroup>
+    <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
+    <ItemGroup>
+        <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
 </Project>
