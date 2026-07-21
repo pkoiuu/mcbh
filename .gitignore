@@ -9,7 +9,7 @@ out/
 node_modules/
 src/Baihe.UI/build/
 src/Baihe.UI/.svelte-kit/
-src/Baihe.UI/build/
+src/Baihe.Host/wwwroot/
 *.tsbuildinfo
 
 # ===== IDE =====

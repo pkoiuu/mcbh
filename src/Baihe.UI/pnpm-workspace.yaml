@@ -1,0 +1,7 @@
+# pnpm v11 配置文件
+# 允许 esbuild 运行构建脚本（下载平台特定的二进制文件）
+onlyBuiltDependencies:
+  - esbuild
+# 跳过运行脚本前的依赖检查
+# 在 Windows 上，依赖检查会触发 registerProject，导致 EBUSY 错误
+verifyDepsBeforeRun: false

@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Baihe.Core.SourceGenerators/Baihe.Core.SourceGenerators.csproj" />
+    <Project Path="src/Baihe.Core/Baihe.Core.csproj" />
+    <Project Path="src/Baihe.Host/Baihe.Host.csproj" />
+  </Folder>
+</Solution>

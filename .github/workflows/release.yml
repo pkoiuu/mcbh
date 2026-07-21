@@ -62,11 +62,6 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: Copy frontend to Host assets
-        run: |
-          New-Item -ItemType Directory -Force -Path src/Baihe.Host/assets
-          Copy-Item src/Baihe.UI/build/* src/Baihe.Host/assets/ -Recurse -Force
-
       - name: Build JRE 21 with jlink
         run: |
           $jmods = "$env:JAVA_HOME\jmods"

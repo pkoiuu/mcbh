@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- 项目属性 -->
+    <PropertyGroup>
+        <AssemblyTitle>Baihe.Host</AssemblyTitle>
+        <AssemblyName>Baihe</AssemblyName>
+        <Description>白鹤启动器宿主层 — 承载 WebView2 加载前端</Description>
+        <Company>白鹤服务器</Company>
+        <Product>Baihe.Host</Product>
+        <Copyright>Copyright © PCL Community 2026, 白鹤服务器</Copyright>
+        <AssemblyVersion>1.0.0.0</AssemblyVersion>
+        <FileVersion>1.0.0.0</FileVersion>
+    </PropertyGroup>
+    <PropertyGroup>
+        <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+        <Platform Condition="'$(Platform)' == ''">AnyCPU</Platform>
+        <Configurations>Debug;CI;Release;Beta</Configurations>
+        <Platforms>AnyCPU;x64</Platforms>
+        <RootNamespace>Baihe.Host</RootNamespace>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <EnableWindowsTargeting>true</EnableWindowsTargeting>
+        <OutputType>WinExe</OutputType>
+        <UseWPF>true</UseWPF>
+        <LangVersion>14.0</LangVersion>
+        <Nullable>enable</Nullable>
+        <WarningLevel>4</WarningLevel>
+        <ErrorReport>prompt</ErrorReport>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <!-- 发布配置 -->
+        <PublishSingleFile>false</PublishSingleFile>
+        <SelfContained>true</SelfContained>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <!-- 应用图标 -->
+        <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    </PropertyGroup>
+    <!-- 构建配置 -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Debug' Or '$(Configuration)' == 'CI' Or '$(Configuration)' == 'DebugCI'">
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>full</DebugType>
+        <Optimize>false</Optimize>
+        <DefineConstants Condition="'$(Configuration)' == 'Debug'">DEBUG;TRACE</DefineConstants>
+        <DefineConstants Condition="'$(Configuration)' == 'CI' Or '$(Configuration)' == 'DebugCI'">CI;TRACE</DefineConstants>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Configuration)' == 'Beta' Or '$(Configuration)' == 'Release' Or '$(Configuration)' == 'Publish'">
+        <DebugType>none</DebugType>
+        <Optimize>true</Optimize>
+        <DefineConstants Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'Publish'">RELEASE;PUBLISH</DefineConstants>
+        <DefineConstants Condition="'$(Configuration)' == 'Beta'">BETA;PUBLISH</DefineConstants>
+    </PropertyGroup>
+    <!-- NuGet 引用 -->
+    <ItemGroup>
+        <!-- WebView2 -->
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+    </ItemGroup>
+    <!-- 项目引用 -->
+    <ItemGroup>
+        <ProjectReference Include="..\Baihe.Core\Baihe.Core.csproj" />
+    </ItemGroup>
+</Project>
