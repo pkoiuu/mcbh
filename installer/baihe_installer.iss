@@ -2,6 +2,7 @@
 ; 白鹤服务器启动器 — Inno Setup 安装脚本
 ; 安装到 %LOCALAPPDATA%\BaiheServer (无需管理员权限)
 ; 包含: 启动器 + JRE + WebView2 Runtime + .minecraft 游戏文件
+; 注意: 路径相对于本 .iss 文件所在目录 (installer/)
 ; ============================================================
 
 #ifndef MyAppVersion
@@ -41,35 +42,34 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
-; 界面
+; 界面 — 路径相对于 .iss 文件目录
 WizardStyle=modern
 ShowLanguageDialog=no
 LanguageDetectionMethod=none
-SetupIconFile=installer_resources\icon.ico
-; 安装向导图片
-WizardImageFile=installer_assets\wizimage.bmp
-WizardSmallImageFile=installer_assets\wizsmallimage.bmp
+SetupIconFile=..\installer_resources\icon.ico
+WizardImageFile=..\installer_assets\wizimage.bmp
+WizardSmallImageFile=..\installer_assets\wizsmallimage.bmp
 
-; 输出
-OutputDir=dist
+; 输出 — 到仓库根目录的 dist/
+OutputDir=..\dist
 OutputBaseFilename=白鹤服务器启动器_Setup_v{#MyAppVersion}
 CloseApplications=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "installer_resources\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "..\installer_resources\ChineseSimplified.isl"
 
 [Files]
 ; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等，排除 WebView2 安装程序)
-Source: "dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; JRE 运行时
-Source: "dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; WebView2 离线安装程序
-Source: "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; .minecraft 游戏文件 — 排除日志和备份
-Source: "dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,.fabric\*"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,.fabric\*"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 ; 桌面快捷方式
