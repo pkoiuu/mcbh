@@ -69,7 +69,7 @@ jobs:
             --module-path $jmods `
             --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml `
             --output dist\launcher\jre `
-            --strip-debug --no-man-files --no-header-files --compress=2
+            --strip-debug --no-man-pages --no-header-files --compress=2
 
       - name: Download WebView2 Fixed Runtime
         run: |
