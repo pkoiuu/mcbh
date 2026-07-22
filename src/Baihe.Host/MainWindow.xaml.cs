@@ -473,6 +473,11 @@ public partial class MainWindow : Window
             // 设置 WebView2 背景色为深色，避免加载期间白屏
             WebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(0x1A, 0x1A, 0x1C);
 
+            // 禁用 WebView2 默认右键菜单 — 桌面应用不需要浏览器上下文菜单
+            coreWebView.Settings.AreDefaultContextMenusEnabled = false;
+            // 禁用 WebView2 默认开发者工具快捷键 (F12)
+            coreWebView.Settings.AreDevToolsEnabled = false;
+
             // 设置虚拟主机名到文件夹映射 — 前端通过 https://baihe.app/ 访问本地资源
             WebViewHost.SetupResourceMapping(coreWebView);
 

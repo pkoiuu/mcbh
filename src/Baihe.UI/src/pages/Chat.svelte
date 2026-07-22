@@ -1,20 +1,36 @@
 <!--
   功能描述: 聊天页面 — 全屏嵌入 chat.hhj520.top
   技术实现: iframe 全屏嵌入，无 padding，最大化聊天区域
-  注意事项: 页面根元素不加 p-8，与其它页面不同；iframe 加载失败时显示错误提示
+  注意事项: 页面根元素不加 p-8，与其它页面不同；iframe 加载超时显示错误提示
 -->
 <script lang="ts">
   let loaded = $state(false)
   let errored = $state(false)
+  let showFallback = $state(false)
 
+  /** iframe 加载完成 — 延迟显示，避免白屏闪烁 */
   function handleLoad(): void {
-    loaded = true
+    // 延迟 300ms 显示，确保 iframe 内容有时间渲染
+    setTimeout(() => {
+      loaded = true
+    }, 300)
   }
 
+  /** iframe 加载失败 */
   function handleError(): void {
     errored = true
     loaded = true
   }
+
+  /** 超时检测 — 8 秒后如果仍未加载，显示回退选项 */
+  $effect(() => {
+    const timer = setTimeout(() => {
+      if (!loaded) {
+        showFallback = true
+      }
+    }, 8000)
+    return () => clearTimeout(timer)
+  })
 </script>
 
 <div class="min-h-0 flex-1 overflow-hidden">
@@ -25,6 +41,16 @@
           class="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]"
         ></div>
         <span class="text-sm text-[var(--muted-foreground)]">正在连接聊天服务器...</span>
+        {#if showFallback}
+          <a
+            href="https://chat.hhj520.top"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-2 inline-flex h-8 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
+          >
+            加载时间较长，点此在浏览器中打开
+          </a>
+        {/if}
       </div>
     </div>
   {/if}
@@ -73,8 +99,7 @@
     title="白鹤聊天"
     class="h-full w-full border-0"
     style={loaded && !errored ? '' : 'display: none;'}
-    sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
-    allow="clipboard-read; clipboard-write; microphone; camera"
+    allow="clipboard-read; clipboard-write; microphone; camera; fullscreen"
     onload={handleLoad}
     onerror={handleError}
   ></iframe>
