@@ -6,6 +6,7 @@
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
   import { router, navItems } from '../lib/router.svelte'
+  import { ipc } from '../lib/ipc'
   import type { Snippet } from 'svelte'
 
   interface Props {
@@ -14,25 +15,68 @@
 
   let { children }: Props = $props()
 
-  // 用户信息（后续从 IPC 获取）
-  let username = $state('Player')
+  // 用户信息 — 从 IPC 获取，响应式更新
+  let username = $state('未设置')
   let authMethod = $state('离线模式')
+  let avatarData = $state<string | null>(null)
+
+  /** 加载账户信息 — 参照 PCL CE McLogin，从后端获取当前登录用户 */
+  async function loadAccount(): Promise<void> {
+    try {
+      const result = await ipc<{ username: string | null; typeDisplay?: string; isUserSet: boolean }>('auth.current')
+      if (result.isUserSet && result.username) {
+        username = result.username
+        authMethod = result.typeDisplay || '离线模式'
+      } else {
+        username = '未设置'
+        authMethod = '点击登录'
+      }
+    } catch {
+      username = '未设置'
+      authMethod = '点击登录'
+    }
+  }
+
+  /** 加载头像 — 从 localStorage 读取 */
+  function loadAvatar(): void {
+    try {
+      avatarData = localStorage.getItem('baihe_avatar')
+    } catch { }
+  }
+
+  // 加载账户信息和头像 — 路由变化时重新加载（登录/登出后自动刷新侧边栏）
+  $effect(() => {
+    const _route = router.current
+    loadAccount()
+    loadAvatar()
+  })
 </script>
 
 <aside
   class="flex w-[240px] shrink-0 flex-col border-r border-[var(--border)] p-4"
   style="background: color-mix(in srgb, var(--sidebar) 80%, transparent); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);"
 >
-  <!-- 用户区 -->
-  <div class="flex items-center gap-3">
-    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[var(--background-300)]">
-      <Icon name="user" size={18} class="text-[var(--icon-muted)]" />
+  <!-- 用户区 — 点击跳转登录页 -->
+  <button
+    type="button"
+    class="flex w-full items-center gap-3 rounded-lg p-1 transition-colors hover:bg-[var(--secondary)]"
+    onclick={() => router.navigate('login')}
+    aria-label="账户登录"
+  >
+    <div class="h-10 w-10 shrink-0 overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--accent)]">
+      {#if avatarData}
+        <img src={avatarData} alt="头像" class="h-full w-full object-cover" />
+      {:else}
+        <div class="flex h-full w-full items-center justify-center text-[var(--icon-muted)]">
+          <Icon name="user" size={18} />
+        </div>
+      {/if}
     </div>
     <div class="min-w-0 flex-1">
       <div class="truncate text-sm font-semibold text-[var(--foreground)]">{username}</div>
       <div class="truncate text-xs text-[var(--muted-foreground)]">{authMethod}</div>
     </div>
-  </div>
+  </button>
 
   <!-- 分隔线 -->
   <div class="mt-3 border-t border-[var(--border)]"></div>

@@ -1,4 +1,5 @@
 # Release 构建 — 打 tag v* 自动构建完整安装包并发布到 GitHub Releases
+# 产出: 开箱即用的 EXE 安装包，包含启动器 + JRE 21 + WebView2 + .minecraft 全量游戏文件
 name: Release
 
 on:
@@ -56,36 +57,41 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
+      # ===== 1. 构建前端 =====
       - name: Build frontend
         working-directory: src/Baihe.UI
         run: |
           pnpm install --frozen-lockfile
           pnpm build
 
+      # ===== 2. 构建 JRE 21 (18 模块，覆盖 Minecraft 全部需求) =====
       - name: Build JRE 21 with jlink
         run: |
           $jmods = "$env:JAVA_HOME\jmods"
           jlink `
             --module-path $jmods `
-            --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml `
+            --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml,java.logging,java.security.sasl,java.transaction.xa,java.instrument,java.prefs,java.rmi,java.security.jgss,jdk.crypto.ec,jdk.zipfs,jdk.management `
             --output dist\launcher\jre `
             --strip-debug --no-man-pages --no-header-files --compress=2
 
+      # ===== 3. 下载 WebView2 离线安装程序 =====
       - name: Download WebView2 Installer
         run: |
-          # 下载 WebView2 离线安装程序（约 2MB）
           $url = "https://go.microsoft.com/fwlink/p/?LinkId=2124702"
           Invoke-WebRequest -Uri $url -OutFile "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 
+      # ===== 4. 获取 .minecraft 游戏资源包 =====
       - name: Download .minecraft Release Asset
         run: |
           # 从 v1.0-assets Release 下载预置的 .minecraft 完整包
+          # 包含: 版本文件 + 库 + 资源 + 模组 + Fabric 缓存 + 配置
           gh release download v1.0-assets --pattern "minecraft.7z" --output minecraft.7z --clobber
           7z x minecraft.7z -odist\ -y
           Remove-Item minecraft.7z
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ===== 5. 发布后端 (自包含 .NET 10 运行时) =====
       - name: Publish Baihe.Host
         run: |
           dotnet publish src/Baihe.Host/Baihe.Host.csproj `
@@ -95,23 +101,68 @@ jobs:
             -p:PublishTrimmed=false `
             -o dist\launcher
 
+      # ===== 6. 复制附加资源 =====
       - name: Copy installer resources
         run: |
           Copy-Item installer_resources\icon.ico dist\launcher\ -Force
           Copy-Item fabric-installer.jar dist\launcher\ -Force
 
+      # ===== 7. 验证打包内容完整性 =====
+      - name: Verify package contents
+        run: |
+          Write-Host "=== dist\launcher ==="
+          Get-ChildItem dist\launcher -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}}
+          Write-Host "`n=== dist\launcher\jre\bin ==="
+          if (Test-Path dist\launcher\jre\bin) { Get-ChildItem dist\launcher\jre\bin -File | Select-Object Name }
+          Write-Host "`n=== dist\launcher\wwwroot ==="
+          if (Test-Path dist\launcher\wwwroot) { Get-ChildItem dist\launcher\wwwroot -File | Select-Object Name }
+          Write-Host "`n=== dist\.minecraft ==="
+          Get-ChildItem dist\.minecraft -Directory | Select-Object Name
+          Write-Host "`n=== .minecraft\versions ==="
+          Get-ChildItem dist\.minecraft\versions -Directory | Select-Object Name
+          Write-Host "`n=== .minecraft\mods ==="
+          Get-ChildItem dist\.minecraft\mods -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}}
+          Write-Host "`n=== .minecraft\.fabric ==="
+          if (Test-Path dist\.minecraft\.fabric) { Write-Host "Fabric cache: EXISTS" } else { Write-Host "Fabric cache: MISSING!" }
+          Write-Host "`n=== .minecraft\assets\objects count ==="
+          (Get-ChildItem dist\.minecraft\assets\objects -Recurse -File).Count
+
+      # ===== 8. 编译 Inno Setup 安装包 =====
       - name: Build installer with Inno Setup
         run: |
-          # 从 git tag 提取版本号 (v1.0.0 → 1.0.0)
           $version = "${{ github.ref_name }}" -replace '^v', ''
           Write-Host "Building installer version: $version"
-          # Windows Runner 预装 Inno Setup 6
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version installer\baihe_installer.iss
 
+      # ===== 9. 上传到 GitHub Releases =====
       - name: Upload installer to Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/白鹤服务器启动器_Setup_*.exe
           generate_release_notes: true
+          body: |
+            ## 白鹤服务器启动器 v${{ github.ref_name }}
+
+            ### 包含内容
+            - 白鹤启动器主程序 (自包含 .NET 10 运行时)
+            - Java 21 JRE (18 模块，jlink 最小化构建)
+            - WebView2 Runtime 离线安装程序
+            - Minecraft 1.21.3 + Fabric Loader 0.16.14
+            - 10 个预装模组 (钠、玉、苹果皮、Xaero小地图等)
+            - 3985 个资源文件 (assets/objects)
+            - 76 个库文件 + 9 个原生库
+            - Fabric 预处理缓存 (.fabric)
+            - 全量模组配置文件
+
+            ### 系统要求
+            - Windows 10 64 位或更高
+            - 无需预装 Java 或 .NET
+            - 无需管理员权限
+
+            ### 安装说明
+            下载 EXE 安装包，双击运行即可。安装程序会自动:
+            1. 安装到用户目录 (%LOCALAPPDATA%\BaiheServer)
+            2. 检测并安装 WebView2 Runtime (如未安装)
+            3. 创建桌面和开始菜单快捷方式
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

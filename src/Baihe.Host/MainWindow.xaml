@@ -1,38 +1,93 @@
 <!--
     主窗口 — 承载 WebView2 加载前端
-    自定义无边框窗口，使用 macOS 风格交通灯标题栏
+    WPF 原生标题栏方案: WindowChrome CaptionHeight=44 启用原生拖拽，交通灯按钮直接在 XAML 中实现
+    注意: AllowsTransparency 必须为 False — WebView2 与透明窗口不兼容
 -->
 <Window x:Class="Baihe.Host.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        xmlns:chrome="clr-namespace:Baihe.Host.Chrome"
         Title="白鹤服务器"
         Width="1280" Height="800"
         MinWidth="960" MinHeight="600"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
-        ResizeMode="CanResizeWithGrip">
-    <!-- WindowChrome 用于自定义窗口边框 — 移除默认标题栏和玻璃效果 -->
+        Background="#1A1A1C"
+        ResizeMode="CanResize">
+
+    <!-- WindowChrome — CaptionHeight=44 启用原生标题栏拖拽，禁用 Aero 默认按钮 -->
     <WindowChrome.WindowChrome>
-        <WindowChrome GlassFrameThickness="0"
-                      CaptionHeight="0"
+        <WindowChrome CaptionHeight="44"
+                      UseAeroCaptionButtons="False"
                       ResizeBorderThickness="6"
-                      CornerRadius="0" />
+                      CornerRadius="0"
+                      GlassFrameThickness="0" />
     </WindowChrome.WindowChrome>
 
-    <!-- 主布局：标题栏（44px）+ WebView2（填充剩余） -->
+    <!-- 交通灯按钮共用样式 — 12px 圆形, hover 时 opacity 0.8 -->
+    <Window.Resources>
+        <Style x:Key="TrafficLightButton" TargetType="Button">
+            <Setter Property="Width" Value="12" />
+            <Setter Property="Height" Value="12" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Cursor" Value="Arrow" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Ellipse x:Name="circle" Fill="{TemplateBinding Background}" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="circle" Property="Opacity" Value="0.8" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
+            <!-- Row0: 标题栏 44px -->
             <RowDefinition Height="44" />
+            <!-- Row1: WebView2 填满剩余空间 -->
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- macOS 风格交通灯标题栏 -->
-        <chrome:TitleBar Grid.Row="0" x:Name="TitleBar" />
+        <!-- 标题栏 — 背景 #1E1E20, 底部 1px 分隔线 #2A2A2C -->
+        <Border Grid.Row="0" Background="#1E1E20" BorderBrush="#2A2A2C" BorderThickness="0,0,0,1">
+            <Grid>
+                <!-- 左侧交通灯按钮: 关闭(红) / 最小化(黄) / 最大化(绿) -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Margin="16,0,0,0">
+                    <Button x:Name="BtnClose"
+                            Style="{StaticResource TrafficLightButton}"
+                            Background="#FF5F57"
+                            Click="BtnClose_Click" />
+                    <Button x:Name="BtnMinimize"
+                            Style="{StaticResource TrafficLightButton}"
+                            Background="#FEBC2E"
+                            Click="BtnMinimize_Click" />
+                    <Button x:Name="BtnMaximize"
+                            Style="{StaticResource TrafficLightButton}"
+                            Margin="0"
+                            Background="#28C840"
+                            Click="BtnMaximize_Click" />
+                </StackPanel>
 
-        <!-- WebView2 宿主控件 -->
-        <wv2:WebView2 Grid.Row="1" x:Name="WebView" />
+                <!-- 居中标题 -->
+                <TextBlock HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="White"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Text="白鹤服务器" />
+            </Grid>
+        </Border>
+
+        <!-- WebView2 — 加载前端页面，填满 Row1 -->
+        <wv2:WebView2 x:Name="WebView" Grid.Row="1" />
     </Grid>
 </Window>

@@ -16,10 +16,18 @@ public static class JavaHostService
 {
     /// <summary>
     /// 检测捆绑 JRE — 查找应用目录下的 jre/bin/java.exe
+    /// 开发环境回溯到 installer_resources/jre/bin/java.exe
     /// </summary>
     public static Task<object?> DetectBundledJava()
     {
+        // 1. 正式部署位置：应用目录/jre/bin/java.exe
         var javaExe = Path.Combine(AppContext.BaseDirectory, "jre", "bin", "java.exe");
+        if (!File.Exists(javaExe))
+        {
+            // 2. 开发环境：从 bin 输出目录回溯到 installer_resources/jre/bin/java.exe
+            javaExe = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "installer_resources", "jre", "bin", "java.exe");
+        }
+
         if (File.Exists(javaExe))
         {
             var version = GetJavaVersion(javaExe);

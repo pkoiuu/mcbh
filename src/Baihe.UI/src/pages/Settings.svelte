@@ -6,6 +6,8 @@
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
   import { ipc } from '../lib/ipc'
+  import { toast } from '../lib/toast.svelte'
+  import { router } from '../lib/router.svelte'
 
   // 设置分类
   type SettingsCategory = 'account' | 'game' | 'appearance' | 'about'
@@ -20,9 +22,11 @@
 
   /** 账户信息 */
   interface AccountInfo {
-    username: string
-    uuid: string
+    username: string | null
+    uuid: string | null
     type: string
+    typeDisplay?: string
+    isUserSet?: boolean
   }
 
   /** 捆绑 Java 检测结果 */
@@ -58,6 +62,68 @@
   let editingName = $state('')
   let nameError = $state('')
 
+  // 头像 — 从 localStorage 读取 base64 图片
+  let avatarData = $state<string | null>(null)
+  let avatarInput: HTMLInputElement | null = null
+
+  /** 加载头像 */
+  function loadAvatar(): void {
+    try {
+      avatarData = localStorage.getItem('baihe_avatar')
+    } catch { }
+  }
+
+  /** 选择头像图片 */
+  function pickAvatar(): void {
+    avatarInput?.click()
+  }
+
+  /** 处理头像选择 */
+  function onAvatarChange(e: Event): void {
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择图片文件')
+      return
+    }
+    // 验证文件大小 (最大 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('图片大小不能超过 2MB')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      // 裁剪为正方形缩略图 (64x64)
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 64
+        canvas.height = 64
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        // 居中裁剪
+        const size = Math.min(img.width, img.height)
+        const sx = (img.width - size) / 2
+        const sy = (img.height - size) / 2
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, 64, 64)
+        avatarData = canvas.toDataURL('image/png')
+        try {
+          localStorage.setItem('baihe_avatar', avatarData)
+        } catch { }
+        toast.success('头像已更新')
+      }
+      img.src = result
+    }
+    reader.readAsDataURL(file)
+    // 重置 input 以便可以重复选择同一文件
+    input.value = ''
+  }
+
   // Java 状态
   let bundledJava = $state<BundledJavaInfo | null>(null)
   let systemJava = $state<SystemJavaEntry[]>([])
@@ -70,6 +136,9 @@
   let autoFullscreen = $state(false)
   let closeAfterLaunch = $state(false)
   let quickPlayEnabled = $state(true)
+  let serverAddress = $state('play.simpfun.cn')
+  let serverPort = $state(28230)
+  let appVersion = $state('1.0.0')
   let settingsLoaded = $state(false)
   let settingsSaving = $state(false)
 
@@ -79,12 +148,21 @@
   /** 内存选项 (GB) */
   const memoryOptions = [2, 3, 4, 6, 8, 12, 16]
 
-  /** 加载账户信息 */
+  /** 加载账户信息 — 处理未设置账户时返回的 null username */
   async function loadAccount(): Promise<void> {
     try {
       account = await ipc<AccountInfo>('auth.current')
     } catch {
-      // IPC 不可用时使用默认值
+      account = null
+    }
+  }
+
+  /** 加载启动器版本号 — 从后端动态获取 */
+  async function loadAppVersion(): Promise<void> {
+    try {
+      appVersion = await ipc<string>('app.getVersion')
+    } catch {
+      appVersion = '1.0.0'
     }
   }
 
@@ -115,6 +193,8 @@
       autoFullscreen = s.autoFullscreen
       closeAfterLaunch = s.closeAfterLaunch
       quickPlayEnabled = s.quickPlayEnabled
+      serverAddress = s.serverAddress
+      serverPort = s.serverPort
       // 同步内存滑块位置
       const gb = Math.round(memoryMB / 1024)
       memorySlider = memoryOptions.indexOf(gb) >= 0 ? memoryOptions.indexOf(gb) : 4
@@ -140,6 +220,8 @@
           autoFullscreen,
           closeAfterLaunch,
           quickPlayEnabled,
+          serverAddress,
+          serverPort,
         })
       } catch {
         // 保存失败静默处理
@@ -188,8 +270,10 @@
 
   // 组件挂载时加载数据
   loadAccount()
+  loadAvatar()
   loadJavaInfo()
   loadSettings()
+  loadAppVersion()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -232,8 +316,27 @@
             <div class="mt-4 divide-y divide-[var(--border)]">
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">头像</span>
-                <div class="flex h-10 w-10 items-center justify-center rounded-[12px] bg-[var(--background-200)] text-[var(--icon-muted)]">
-                  <Icon name="user" size={20} />
+                <div class="flex items-center gap-3">
+                  <input type="file" accept="image/*" class="hidden" bind:this={avatarInput} onchange={onAvatarChange} />
+                  <button
+                    type="button"
+                    class="group relative h-12 w-12 overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--accent)] transition-all hover:border-[var(--primary)] hover:shadow-[0_0_0_2px_var(--primary)]"
+                    onclick={pickAvatar}
+                    aria-label="修改头像"
+                  >
+                    {#if avatarData}
+                      <img src={avatarData} alt="头像" class="h-full w-full object-cover" />
+                    {:else}
+                      <div class="flex h-full w-full items-center justify-center text-[var(--muted-foreground)] transition-colors group-hover:text-[var(--primary)]">
+                        <Icon name="user" size={22} />
+                      </div>
+                    {/if}
+                    <!-- 悬停遮罩 -->
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Icon name="settings" size={16} />
+                    </div>
+                  </button>
+                  <span class="text-[12px] text-[var(--muted-foreground)]">点击修改</span>
                 </div>
               </div>
               <div class="flex items-center justify-between py-3">
@@ -250,7 +353,7 @@
                     <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70" onclick={saveUsername}>保存</button>
                     <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--muted-foreground)] transition-opacity hover:opacity-70" onclick={() => { isEditingName = false; nameError = '' }}>取消</button>
                   {:else}
-                    <span class="truncate text-sm text-[var(--foreground)]">{account?.username ?? 'Player'}</span>
+                    <span class="truncate text-sm text-[var(--foreground)]">{account?.isUserSet ? account.username : '未设置'}</span>
                     <button type="button" class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-opacity hover:opacity-70" onclick={startEditName}>修改</button>
                   {/if}
                 </div>
@@ -264,15 +367,29 @@
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">验证方式</span>
-                <span class="truncate text-sm text-[var(--foreground)]">离线模式</span>
+                <span class="truncate text-sm text-[var(--foreground)]">{account?.typeDisplay || '离线模式'}</span>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">状态</span>
                 <div class="flex items-center gap-2">
-                  <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--success);" aria-hidden="true"></span>
-                  <span class="whitespace-nowrap text-sm text-[var(--foreground)]">已登录</span>
+                  {#if account?.isUserSet}
+                    <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--success);" aria-hidden="true"></span>
+                    <span class="whitespace-nowrap text-sm text-[var(--foreground)]">已登录</span>
+                  {:else}
+                    <span class="inline-block h-2 w-2 rounded-full" style="background-color: var(--muted-foreground);" aria-hidden="true"></span>
+                    <span class="whitespace-nowrap text-sm text-[var(--muted-foreground)]">未设置</span>
+                  {/if}
                 </div>
               </div>
+            </div>
+            <div class="flex justify-end pt-3">
+              <button
+                type="button"
+                class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 text-[13px] font-medium text-[var(--primary-foreground)] transition-[filter] hover:brightness-[0.96]"
+                onclick={() => router.navigate('login')}
+              >
+                切换登录方式
+              </button>
             </div>
           </section>
 
@@ -328,7 +445,7 @@
                       step="1"
                       bind:value={memorySlider}
                       onchange={onMemoryChange}
-                      class="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--background-300)] accent-[var(--primary)]"
+                      class="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--accent)] accent-[var(--primary)]"
                       aria-label="内存分配"
                     />
                     <span class="w-16 shrink-0 text-right text-sm font-medium text-[var(--foreground)]" style="font-family: var(--font-mono);">{Math.round(memoryMB / 1024)} GB</span>
@@ -359,7 +476,7 @@
                   aria-checked={autoFullscreen}
                   aria-label="启动后自动全屏"
                   class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
-                  style="background-color: {autoFullscreen ? 'var(--primary)' : 'var(--background-300)'};"
+                  style="background-color: {autoFullscreen ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { autoFullscreen = !autoFullscreen; saveSettings() }}
                 >
                   <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({autoFullscreen ? '22px' : '2px'});"></span>
@@ -374,7 +491,7 @@
                   aria-checked={quickPlayEnabled}
                   aria-label="QuickPlay 自动连接"
                   class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
-                  style="background-color: {quickPlayEnabled ? 'var(--primary)' : 'var(--background-300)'};"
+                  style="background-color: {quickPlayEnabled ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { quickPlayEnabled = !quickPlayEnabled; saveSettings() }}
                 >
                   <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({quickPlayEnabled ? '22px' : '2px'});"></span>
@@ -389,11 +506,24 @@
                   aria-checked={closeAfterLaunch}
                   aria-label="启动后关闭启动器"
                   class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
-                  style="background-color: {closeAfterLaunch ? 'var(--primary)' : 'var(--background-300)'};"
+                  style="background-color: {closeAfterLaunch ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { closeAfterLaunch = !closeAfterLaunch; saveSettings() }}
                 >
                   <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({closeAfterLaunch ? '22px' : '2px'});"></span>
                 </button>
+              </div>
+              <!-- 服务器地址 -->
+              <div class="flex items-center justify-between py-3">
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">服务器地址</span>
+                <div class="flex items-center gap-2">
+                  <div class="flex h-9 w-44 shrink-0 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]">
+                    <input type="text" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" bind:value={serverAddress} onchange={saveSettings} aria-label="服务器地址" />
+                  </div>
+                  <span class="shrink-0 text-sm text-[var(--muted-foreground)]">:</span>
+                  <div class="flex h-9 w-20 shrink-0 items-center rounded-[0.6rem] border border-[var(--input)] bg-[var(--background)] px-3 transition-colors focus-within:border-[var(--ring)] focus-within:shadow-[0_0_0_1px_var(--ring)]">
+                    <input type="number" class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none" style="font-family: var(--font-mono);" bind:value={serverPort} onchange={saveSettings} min="1" max="65535" aria-label="服务器端口" />
+                  </div>
+                </div>
               </div>
             </div>
           </section>
@@ -425,11 +555,11 @@
             <div class="mt-4 divide-y divide-[var(--border)]">
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">版本</span>
-                <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">v1.0.0</span>
+                <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">v{appVersion}</span>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">服务器地址</span>
-                <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">play.simpfun.cn:28230</span>
+                <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{serverAddress}:{serverPort}</span>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">开源许可</span>

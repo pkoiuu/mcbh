@@ -1,81 +1,94 @@
-// 认证服务 — 管理离线账户的创建、持久化和切换
-// 离线账户不需要网络验证，UUID 基于用户名生成
+// 认证服务 — 统一管理离线/微软/第三方账户的创建、持久化和刷新
+// 离线账户不需要网络验证，UUID 基于用户名生成 (OfflinePlayer 算法)
+// 参照 PCL CE: 启动前必须先创建用户档案
 
 using System;
-using System.IO;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Baihe.Host.Models;
 
 namespace Baihe.Host.Services;
 
 /// <summary>
-/// 认证服务 — 离线账户管理
+/// 认证服务 — 统一账户管理 (离线/微软/第三方)
 /// </summary>
 public static class AuthService
 {
-    /// <summary>账户配置文件路径</summary>
-    private static readonly string AccountPath = Path.Combine(AppContext.BaseDirectory, "account.json");
-
-    /// <summary>当前账户</summary>
-    private static OfflineAccount? _currentAccount;
-
-    /// <summary>JSON 序列化选项</summary>
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>当前账户 (内存缓存)</summary>
+    private static McAccount? _currentAccount;
 
     /// <summary>
-    /// 获取当前账户 — 不存在则自动创建默认离线账户
+    /// 获取当前账户 — 不自动创建，未设置则返回 null
     /// </summary>
-    public static Task<OfflineAccount> GetCurrentAccount()
+    public static Task<McAccount?> GetCurrentAccount()
     {
         if (_currentAccount != null)
-            return Task.FromResult(_currentAccount);
+            return Task.FromResult(_currentAccount)!;
 
-        // 从文件加载
-        if (File.Exists(AccountPath))
-        {
-            try
-            {
-                var json = File.ReadAllText(AccountPath);
-                _currentAccount = JsonSerializer.Deserialize<OfflineAccount>(json, JsonOptions);
-                if (_currentAccount != null)
-                    return Task.FromResult(_currentAccount);
-            }
-            catch
-            {
-                // 加载失败，创建新账户
-            }
-        }
-
-        // 创建默认离线账户
-        _currentAccount = OfflineAccount.Create("Player");
-        SaveAccount(_currentAccount);
-        return Task.FromResult(_currentAccount);
+        _currentAccount = AccountStore.Load();
+        return Task.FromResult(_currentAccount)!;
     }
 
     /// <summary>
-    /// 创建或切换离线账户
+    /// 检查是否已有用户配置的账户
     /// </summary>
-    public static Task<OfflineAccount> SetOfflineAccount(string username)
+    public static async Task<bool> HasAccount()
     {
-        _currentAccount = OfflineAccount.Create(username);
-        SaveAccount(_currentAccount);
-        return Task.FromResult(_currentAccount);
+        var account = await GetCurrentAccount();
+        return account != null && account.IsUserSet;
     }
 
     /// <summary>
-    /// 保存账户到文件
+    /// 创建或切换离线账户 — 用户显式设置用户名
     /// </summary>
-    private static void SaveAccount(OfflineAccount account)
+    public static Task<McAccount> SetOfflineAccount(string username)
     {
-        try
+        _currentAccount = new McAccount
         {
-            var json = JsonSerializer.Serialize(account, JsonOptions);
-            File.WriteAllText(AccountPath, json);
-        }
-        catch
+            Type = AccountType.Offline,
+            Username = username,
+            Uuid = GenerateOfflineUuid(username),
+            AccessToken = "offline-token",
+            IsUserSet = true,
+        };
+        AccountStore.Save(_currentAccount);
+        return Task.FromResult(_currentAccount);
+    }
+
+    /// <summary>保存微软或第三方登录后的账户</summary>
+    public static void SaveAccount(McAccount account)
+    {
+        _currentAccount = account;
+        AccountStore.Save(account);
+    }
+
+    /// <summary>尝试刷新微软令牌(如果过期)</summary>
+    public static async Task<McAccount?> RefreshIfExpired()
+    {
+        var account = await GetCurrentAccount();
+        if (account == null || account.Type != AccountType.Microsoft)
+            return account;
+
+        if (MicrosoftAuthService.IsTokenExpired(account) && !string.IsNullOrEmpty(account.RefreshToken))
         {
-            // 保存失败不影响功能
+            var refreshed = await MicrosoftAuthService.RefreshLogin(account.RefreshToken);
+            if (refreshed != null)
+            {
+                SaveAccount(refreshed);
+                return refreshed;
+            }
         }
+        return account;
+    }
+
+    /// <summary>
+    /// 生成离线玩家 UUID — 基于 "OfflinePlayer:{username}" 的 MD5 (version 3 UUID)
+    /// </summary>
+    private static string GenerateOfflineUuid(string username)
+    {
+        var input = $"OfflinePlayer:{username}";
+        var bytes = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x30); // version 3
+        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80); // variant
+        return new Guid(bytes).ToString("N");
     }
 }

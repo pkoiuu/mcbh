@@ -48,6 +48,14 @@ designs/
 # ===== Trae 工作区 =====
 .trae/
 
+# ===== 截图和分析报告（本地文件，不提交） =====
+PixPin_*.png
+*.png.bak
+白鹤启动器_架构方案_v1.0.md
+白鹤服务器启动器_开发规格文档.md
+深度代码分析报告.md
+白鹤启动器_全栈架构分析报告.md
+
 # ===== 旧产物（防止重新生成） =====
 baihe_installer.aip
 baihe_installer-SetupFiles/

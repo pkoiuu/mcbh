@@ -122,6 +122,12 @@ public static class SettingsService
         else if (qp.ValueKind == JsonValueKind.True)
             settings.QuickPlayEnabled = true;
 
+        if (args.TryGetProperty("serverAddress", out var sa) && sa.ValueKind == JsonValueKind.String)
+            settings.ServerAddress = sa.GetString() ?? "play.simpfun.cn";
+
+        if (args.TryGetProperty("serverPort", out var sp) && sp.TryGetInt32(out var spVal))
+            settings.ServerPort = Math.Max(1, Math.Min(spVal, 65535));
+
         await SaveAsync(settings);
         return settings;
     }

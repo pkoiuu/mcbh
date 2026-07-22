@@ -75,18 +75,25 @@
         <!-- Stage 2: 模型 -->
         <Compile Include="Models\OfflineAccount.cs" />
         <Compile Include="Models\GameInstance.cs" />
+        <Compile Include="Models\McAccount.cs" />
         <!-- Stage 2: 服务 -->
         <Compile Include="Services\JavaHostService.cs" />
         <Compile Include="Services\VersionService.cs" />
         <Compile Include="Services\InstanceService.cs" />
         <Compile Include="Services\LaunchService.cs" />
         <Compile Include="Services\AuthService.cs" />
+        <Compile Include="Services\ThirdPartyAuthService.cs" />
+        <Compile Include="Services\MicrosoftAuthService.cs" />
         <!-- Stage 3: 下载服务 -->
         <Compile Include="Services\DownloadService.cs" />
         <Compile Include="Services\FabricService.cs" />
         <!-- Stage 5: 设置与状态服务 -->
         <Compile Include="Services\SettingsService.cs" />
         <Compile Include="Services\ServerStatusService.cs" />
+        <!-- Stage 6: 工具服务 -->
+        <Compile Include="Services\ModService.cs" />
+        <Compile Include="Services\SaveService.cs" />
+        <Compile Include="Services\ToolService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

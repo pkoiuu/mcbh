@@ -1,7 +1,8 @@
 ; ============================================================
 ; 白鹤服务器启动器 — Inno Setup 安装脚本
 ; 安装到 %LOCALAPPDATA%\BaiheServer (无需管理员权限)
-; 包含: 启动器 + JRE + WebView2 Runtime + .minecraft 游戏文件
+; 包含: 启动器 + JRE 21 + WebView2 Runtime + .minecraft 游戏全量文件
+; 做到开箱即用 — 无需任何额外下载
 ; 注意: 路径相对于本 .iss 文件所在目录 (installer/)
 ; ============================================================
 
@@ -59,21 +60,22 @@ CloseApplications=no
 Name: "chinesesimplified"; MessagesFile: "..\installer_resources\ChineseSimplified.isl"
 
 [Files]
-; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等，排除 WebView2 安装程序)
+; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等，排除 WebView2 安装程序和 JRE)
 Source: "..\dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; JRE 运行时
+; JRE 21 运行时 (jlink 最小化构建，18 模块)
 Source: "..\dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; WebView2 离线安装程序
+; WebView2 离线安装程序 (约 2MB，安装时自动检测并安装)
 Source: "..\dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; .minecraft 游戏文件 — 排除日志和备份
-Source: "..\dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,.fabric\*"; Flags: recursesubdirs createallsubdirs ignoreversion
+; .minecraft 游戏文件 — 全量打包，包含 Fabric 缓存
+; 排除: 日志、崩溃报告、备份文件、旧服务器列表
+Source: "..\dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,servers.dat_old,downloads\*"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-; 桌面快捷方式
-Name: "{commondesktop}\白鹤服务器启动器"; Filename: "{app}\Baihe.exe"; IconFilename: "{app}\icon.ico"; Comment: "白鹤服务器专用启动器"
+; 桌面快捷方式 — 使用 userdesktop 避免 lowest 权限下 commondesktop 的问题
+Name: "{userdesktop}\白鹤服务器启动器"; Filename: "{app}\Baihe.exe"; IconFilename: "{app}\icon.ico"; Comment: "白鹤服务器专用启动器"
 
 ; 开始菜单快捷方式
 Name: "{group}\白鹤服务器启动器"; Filename: "{app}\Baihe.exe"; IconFilename: "{app}\icon.ico"; Comment: "白鹤服务器专用启动器"
@@ -86,11 +88,11 @@ Filename: "{app}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/si
 Filename: "{app}\Baihe.exe"; Description: "{cm:LaunchProgram,白鹤服务器启动器}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 卸载时清理用户数据 (可选)
+; 卸载时仅清理运行时产生的数据，保留用户存档 (saves)
 Type: filesandordirs; Name: "{app}\.minecraft\logs"
 Type: filesandordirs; Name: "{app}\.minecraft\crash-reports"
-Type: filesandordirs; Name: "{app}\.minecraft\saves"
 Type: filesandordirs; Name: "{app}\.minecraft\screenshots"
+Type: filesandordirs; Name: "{app}\.minecraft\downloads"
 
 [Code]
 // 检测 WebView2 Runtime 是否已安装

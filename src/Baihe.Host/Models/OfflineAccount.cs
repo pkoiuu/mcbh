@@ -24,6 +24,9 @@ public class OfflineAccount
     /// <summary>账户类型</summary>
     public string Type => "offline";
 
+    /// <summary>用户是否已显式设置用户名（区分默认账户和用户创建的账户）</summary>
+    public bool IsUserSet { get; set; } = false;
+
     /// <summary>
     /// 根据用户名创建离线账户
     /// </summary>

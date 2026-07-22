@@ -6,6 +6,8 @@
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
   import { ipc, on } from '../lib/ipc'
+  import { router } from '../lib/router.svelte'
+  import { toast } from '../lib/toast.svelte'
 
   /** 实例信息 */
   interface GameInstance {
@@ -47,6 +49,7 @@
   interface LaunchExitedEvent {
     exitCode: number
     abnormal: boolean
+    error?: string | null
   }
 
   // 实例状态
@@ -65,6 +68,9 @@
   let serverStatus = $state<ServerStatus | null>(null)
   let serverChecking = $state(false)
 
+  // 账户状态 — 参照 PCL CE McLaunchPrecheck，启动前必须检查用户档案
+  let hasAccount = $state(false)
+
   /** 快捷工具列表 */
   const tools = [
     { id: 'new-instance', icon: 'plus', title: '新建实例', desc: '配置版本与加载器' },
@@ -72,6 +78,23 @@
     { id: 'backup', icon: 'box', title: '备份管理', desc: '查看与恢复快照' },
     { id: 'mods', icon: 'package', title: 'Mod 管理', desc: '启用、排序与更新' },
   ]
+
+  /** 处理快捷工具点击 — 导航到对应页面或显示提示 */
+  function handleToolClick(toolId: string): void {
+    switch (toolId) {
+      case 'new-instance':
+        router.navigate('download')
+        break
+      case 'mods':
+      case 'backup':
+      case 'import-save':
+        router.navigate('tools')
+        toast.show('请在工具页面操作')
+        break
+      default:
+        toast.show('功能开发中')
+    }
+  }
 
   /** 新闻列表 */
   const news = [
@@ -93,6 +116,16 @@
     }
   }
 
+  /** 检查账户状态 — 启动前必须确认用户已设置用户名 */
+  async function checkAccount(): Promise<void> {
+    try {
+      const result = await ipc<{ hasAccount: boolean }>('auth.hasAccount')
+      hasAccount = result.hasAccount
+    } catch {
+      hasAccount = false
+    }
+  }
+
   /** 检查服务器状态 */
   async function checkServerStatus(): Promise<void> {
     serverChecking = true
@@ -108,6 +141,11 @@
   /** 处理启动按钮点击 — 调用 IPC 启动游戏 */
   async function handleLaunch(): Promise<void> {
     if (isLaunching || gameRunning || !instance) return
+    // 启动前检查账户 — 未登录时跳转登录页
+    if (!hasAccount) {
+      router.navigate('login')
+      return
+    }
     isLaunching = true
     launchError = ''
     launchMessage = '正在准备启动...'
@@ -159,7 +197,16 @@
       gameRunning = false
       isLaunching = false
       if (evt.abnormal) {
-        launchError = `游戏异常退出 (code: ${evt.exitCode})`
+        // 显示 stderr 中的关键错误信息（取最后几行，通常包含实际错误）
+        const stderr = evt.error
+        if (stderr && stderr.trim().length > 0) {
+          // 提取 stderr 最后 3 行作为错误摘要
+          const lines = stderr.trim().split('\n').filter(l => l.trim())
+          const summary = lines.slice(-3).join(' | ')
+          launchError = `游戏异常退出 (code: ${evt.exitCode}): ${summary}`
+        } else {
+          launchError = `游戏异常退出 (code: ${evt.exitCode})`
+        }
         launchMessage = ''
       } else {
         launchMessage = '游戏已正常退出'
@@ -180,6 +227,7 @@
   // 组件挂载时加载数据
   loadInstance()
   checkServerStatus()
+  checkAccount()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -214,18 +262,18 @@
       {#if isLoading}
         <!-- 加载中状态 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--background-200)] text-[var(--muted-foreground)]">
-            <Icon name="box" size={28} />
+          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--primary)]">
+            <Icon name="palette" size={28} />
           </div>
           <div class="min-w-0 flex-1">
-            <div class="h-[22px] w-40 animate-pulse rounded bg-[var(--background-200)]"></div>
-            <div class="mt-2 h-[16px] w-56 animate-pulse rounded bg-[var(--background-200)]"></div>
+            <div class="h-[22px] w-40 animate-pulse rounded bg-[var(--accent)]"></div>
+            <div class="mt-2 h-[16px] w-56 animate-pulse rounded bg-[var(--accent)]"></div>
           </div>
         </article>
       {:else if loadError || !instance}
         <!-- 无实例或加载失败 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--background-200)] text-[var(--muted-foreground)]">
+          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--muted-foreground)]">
             <Icon name="box" size={28} />
           </div>
           <div class="min-w-0 flex-1">
@@ -239,8 +287,8 @@
         <!-- 正常实例卡片 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
           <!-- 缩略图 -->
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--background-200)] text-[var(--muted-foreground)]">
-            <Icon name="box" size={28} />
+          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--primary)]">
+            <Icon name="palette" size={28} />
           </div>
           <!-- 中间: 实例名 + meta -->
           <div class="min-w-0 flex-1">
@@ -278,11 +326,13 @@
               onclick={handleLaunch}
             >
               <Icon name="circle-play" size={18} />
-              <span>{gameRunning ? '运行中' : isLaunching ? '启动中...' : launchSuccess ? '已启动' : '启动游戏'}</span>
+              <span>{gameRunning ? '运行中' : isLaunching ? '启动中...' : launchSuccess ? '已启动' : hasAccount ? '启动游戏' : '请先登录账户'}</span>
             </button>
             <span class="text-[12px] text-[var(--muted-foreground)]">
               {#if !instance.isInstalled}
                 版本未安装
+              {:else if !hasAccount}
+                点击登录账户
               {:else if gameRunning}
                 游戏正在运行
               {:else}
@@ -298,17 +348,17 @@
     <section>
       <div class="grid grid-cols-4 gap-4">
         {#each tools as tool (tool.id)}
-          <a
-            href="#"
-            class="group flex flex-col gap-2.5 rounded-[1rem] border border-[var(--border)] bg-[var(--card)] p-5 transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]"
-            onclick={(e) => e.preventDefault()}
+          <button
+            type="button"
+            class="group flex flex-col gap-2.5 rounded-[1rem] border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]"
+            onclick={() => handleToolClick(tool.id)}
           >
             <Icon name={tool.icon} size={20} class="text-[var(--primary)]" />
             <div class="min-w-0">
               <div class="truncate text-[14px] font-semibold text-[var(--foreground)]">{tool.title}</div>
               <div class="mt-0.5 truncate text-[12px] text-[var(--muted-foreground)]">{tool.desc}</div>
             </div>
-          </a>
+          </button>
         {/each}
       </div>
     </section>

@@ -24,14 +24,19 @@ public static class InstanceService
 
     /// <summary>
     /// 获取 .minecraft 目录路径
-    /// 优先查找应用目录下的 .minecraft，其次查找当前工作目录
+    /// 优先查找应用目录下的 .minecraft，其次查找 installer_resources（开发环境）
     /// </summary>
     public static string GetMcDirectory()
     {
         var candidates = new[]
         {
+            // 1. 应用目录下的 .minecraft（正式部署位置）
             Path.Combine(AppContext.BaseDirectory, McDirName),
+            // 2. 当前工作目录下的 .minecraft
             Path.Combine(Directory.GetCurrentDirectory(), McDirName),
+            // 3. 开发环境：从 bin 输出目录回溯到 installer_resources
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "installer_resources", McDirName),
+            // 4. 标准 Minecraft 安装位置
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), McDirName),
         };
 
@@ -67,12 +72,16 @@ public static class InstanceService
                 using var doc = JsonDocument.Parse(json);
 
                 var root = doc.RootElement;
+                // 判断是否已安装 — 有 jar 文件或有 inheritsFrom（Fabric/Forge 等加载器版本通过继承使用原版 jar）
+                var hasJar = File.Exists(jarPath);
+                var hasInheritsFrom = root.TryGetProperty("inheritsFrom", out var inheritsProp)
+                    && inheritsProp.ValueKind == JsonValueKind.String;
                 var instance = new GameInstance
                 {
                     Id = id,
                     Version = root.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? id : id,
                     Type = root.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "release" : "release",
-                    IsInstalled = File.Exists(jarPath),
+                    IsInstalled = hasJar || hasInheritsFrom,
                 };
 
                 // 检测加载器类型
@@ -152,8 +161,10 @@ public static class InstanceService
                 return selected;
         }
 
-        // 默认选择第一个已安装的实例
-        return instances.FirstOrDefault(i => i.IsInstalled) ?? instances[0];
+        // 参照 PCL CE [启航定制]: 优先选择 Fabric 实例
+        return instances.FirstOrDefault(i => i.IsInstalled && i.Id.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+            ?? instances.FirstOrDefault(i => i.IsInstalled)
+            ?? instances[0];
     }
 
     /// <summary>

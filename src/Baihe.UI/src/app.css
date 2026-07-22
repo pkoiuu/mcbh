@@ -196,6 +196,12 @@
   --sidebar-border: var(--background-700);
   --sidebar-ring: var(--brand-400);
 
+  /* 暗色模式下覆盖原始色阶变量 — 防止浅色背景在暗色卡片上显示为白色方框 */
+  --background-100: var(--background-900);
+  --background-200: var(--background-700);
+  --background-300: var(--background-700);
+  --background-400: var(--background-600);
+
   /* 暗色阴影: 更强对比 */
   --shadow-2xs: 0 1px 2px -1px rgba(0, 0, 0, 0.30);
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.30);

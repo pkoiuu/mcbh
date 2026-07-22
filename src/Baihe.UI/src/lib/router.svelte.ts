@@ -6,7 +6,7 @@
  */
 
 /** 页面类型 */
-export type PageKey = 'home' | 'download' | 'settings' | 'tools'
+export type PageKey = 'home' | 'download' | 'settings' | 'tools' | 'login'
 
 /** 路由状态类 — 使用 class + $state 实现响应式 */
 class RouterState {

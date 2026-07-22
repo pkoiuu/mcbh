@@ -4,10 +4,12 @@
 using System;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Baihe.Host.Ipc;
+using Baihe.Host.Models;
 using Baihe.Host.Services;
 using Baihe.Host.Web;
 
@@ -22,6 +24,9 @@ public partial class MainWindow : Window
     /// IPC 路由器 — 处理前端发来的命令
     /// </summary>
     private readonly IpcRouter _ipcRouter = new();
+
+    /// <summary>微软登录取消令牌</summary>
+    private CancellationTokenSource? _msCts;
 
     /// <summary>
     /// 创建主窗口实例
@@ -93,17 +98,117 @@ public partial class MainWindow : Window
             return (await InstanceService.GetCurrentInstance())!;
         });
 
-        // 认证
+        // 认证 — 返回账户信息或空标记（未设置时 username 为 null）
         _ipcRouter.Register("auth.current", async _ =>
         {
-            return await AuthService.GetCurrentAccount();
+            var account = await AuthService.GetCurrentAccount();
+            if (account == null)
+                return new { username = (string?)null, uuid = (string?)null, type = "offline", typeDisplay = "离线", isUserSet = false };
+            return new
+            {
+                username = account.Username,
+                uuid = account.Uuid,
+                type = account.Type.ToString().ToLowerInvariant(),
+                typeDisplay = account.TypeDisplay,
+                isUserSet = account.IsUserSet,
+            };
+        });
+
+        // 快速检查是否已设置账户 — 供前端启动前检查
+        _ipcRouter.Register("auth.hasAccount", async _ =>
+        {
+            return new { hasAccount = await AuthService.HasAccount() };
         });
 
         _ipcRouter.Register("auth.offline", async args =>
         {
             var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "Player";
-            return await AuthService.SetOfflineAccount(username);
+            var account = await AuthService.SetOfflineAccount(username);
+            return new { username = account.Username, uuid = account.Uuid, isUserSet = account.IsUserSet };
+        });
+
+        // 别名 — Login.svelte 使用 auth.setOffline
+        _ipcRouter.Register("auth.setOffline", async args =>
+        {
+            var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "Player";
+            var account = await AuthService.SetOfflineAccount(username);
+            return new { username = account.Username, isUserSet = account.IsUserSet };
+        });
+
+        // 微软正版登录 — 设备码流程，通过事件推送状态
+        _ipcRouter.Register("auth.msLogin", _args =>
+        {
+            _msCts?.Cancel();
+            _msCts = new CancellationTokenSource();
+            var cts = _msCts;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var account = await MicrosoftAuthService.LoginWithDeviceCode(
+                        (userCode, verificationUri) =>
+                        {
+                            IpcRouter.PushEvent("auth.msDeviceCode", new { userCode, verificationUri });
+                        },
+                        cts.Token);
+
+                    AuthService.SaveAccount(account);
+                    IpcRouter.PushEvent("auth.msLoginResult", new { success = true, username = account.Username });
+                }
+                catch (OperationCanceledException)
+                {
+                    // 用户取消，不推送事件
+                }
+                catch (Exception ex)
+                {
+                    IpcRouter.PushEvent("auth.msLoginResult", new { success = false, error = ex.Message });
+                }
+            });
+
+            return Task.FromResult<object>(new { started = true });
+        });
+
+        // 取消微软登录
+        _ipcRouter.Register("auth.msCancel", _ =>
+        {
+            _msCts?.Cancel();
+            _msCts = null;
+            return Task.FromResult<object>(new { cancelled = true });
+        });
+
+        // 第三方验证登录
+        _ipcRouter.Register("auth.thirdPartyLogin", async args =>
+        {
+            if (args?.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return new { success = false, error = "参数错误" };
+
+            string serverUrl = "";
+            string username = "";
+            string password = "";
+
+            if (args.Value.TryGetProperty("serverUrl", out var urlProp))
+                serverUrl = urlProp.GetString() ?? "";
+            if (args.Value.TryGetProperty("username", out var userProp))
+                username = userProp.GetString() ?? "";
+            if (args.Value.TryGetProperty("password", out var passProp))
+                password = passProp.GetString() ?? "";
+
+            if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                return new { success = false, error = "请填写所有字段" };
+
+            try
+            {
+                var account = await ThirdPartyAuthService.Login(serverUrl, username, password);
+                AuthService.SaveAccount(account);
+                return new { success = true, username = account.Username };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
         });
 
         // Java 检测
@@ -131,6 +236,19 @@ public partial class MainWindow : Window
                     quickPlay = qpProp.GetBoolean();
             }
 
+            // 检查用户是否已设置账户
+            var account = await AuthService.GetCurrentAccount();
+            if (account == null || !account.IsUserSet)
+                return new { success = false, error = "请先登录账户" };
+
+            // 微软账户自动刷新令牌
+            if (account.Type == AccountType.Microsoft)
+            {
+                account = await AuthService.RefreshIfExpired();
+                if (account == null || !account.IsUserSet)
+                    return new { success = false, error = "登录已过期，请重新登录" };
+            }
+
             // 如果未指定实例，使用当前实例
             if (string.IsNullOrEmpty(instanceId))
             {
@@ -138,7 +256,6 @@ public partial class MainWindow : Window
                 instanceId = current?.Id ?? "";
             }
 
-            var account = await AuthService.GetCurrentAccount();
             var settings = await SettingsService.GetAsync();
             return await LaunchService.Launch(instanceId, account, quickPlay, settings);
         });
@@ -207,6 +324,130 @@ public partial class MainWindow : Window
         {
             return await ServerStatusService.CheckStatus();
         });
+
+        // ===== Stage 6: 工具功能命令 =====
+
+        // Mod 管理
+        _ipcRouter.Register("mods.list", async _ =>
+        {
+            return await ModService.ListMods();
+        });
+
+        _ipcRouter.Register("mods.toggle", async args =>
+        {
+            var fileName = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            var enabled = await ModService.ToggleMod(fileName);
+            return new { success = true, enabled };
+        });
+
+        _ipcRouter.Register("mods.delete", async args =>
+        {
+            var fileName = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            await ModService.DeleteMod(fileName);
+            return new { success = true };
+        });
+
+        _ipcRouter.Register("mods.openFolder", async _ =>
+        {
+            var path = await ModService.OpenModsFolder();
+            return new { success = true, path };
+        });
+
+        // 存档管理
+        _ipcRouter.Register("saves.list", async _ =>
+        {
+            return await SaveService.ListSaves();
+        });
+
+        _ipcRouter.Register("saves.backup", async args =>
+        {
+            var saveName = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            return await SaveService.BackupSave(saveName);
+        });
+
+        _ipcRouter.Register("saves.import", async args =>
+        {
+            var zipPath = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            return await SaveService.ImportSave(zipPath);
+        });
+
+        _ipcRouter.Register("saves.backups", async _ =>
+        {
+            return await SaveService.ListBackups();
+        });
+
+        _ipcRouter.Register("saves.deleteBackup", async args =>
+        {
+            var fileName = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            await SaveService.DeleteBackup(fileName);
+            return new { success = true };
+        });
+
+        _ipcRouter.Register("saves.restore", async args =>
+        {
+            if (args?.ValueKind == System.Text.Json.JsonValueKind.Object
+                && args.Value.TryGetProperty("backupFileName", out var fnProp))
+            {
+                var backupFileName = fnProp.GetString() ?? "";
+                string? saveName = null;
+                if (args.Value.TryGetProperty("saveName", out var snProp))
+                    saveName = snProp.GetString();
+                return await SaveService.RestoreBackup(backupFileName, saveName);
+            }
+            return new { success = false, error = "参数错误" };
+        });
+
+        // 截图管理
+        _ipcRouter.Register("screenshots.list", async _ =>
+        {
+            return await ToolService.ListScreenshots();
+        });
+
+        // 打开文件夹
+        _ipcRouter.Register("tools.openFolder", async args =>
+        {
+            var folderName = args?.ValueKind == System.Text.Json.JsonValueKind.String
+                ? args.Value.GetString()! : "minecraft";
+            var path = await ToolService.OpenFolder(folderName);
+            return new { success = true, path };
+        });
+
+        // 游戏修复
+        _ipcRouter.Register("tools.repair", async _ =>
+        {
+            return await ToolService.RepairGame();
+        });
+    }
+
+    /// <summary>
+    /// 关闭按钮 — 关闭窗口
+    /// </summary>
+    private void BtnClose_Click(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    /// <summary>
+    /// 最小化按钮 — 最小化窗口
+    /// </summary>
+    private void BtnMinimize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+
+    /// <summary>
+    /// 最大化按钮 — 切换最大化/还原
+    /// </summary>
+    private void BtnMaximize_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
     }
 
     /// <summary>
