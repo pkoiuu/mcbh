@@ -37,13 +37,22 @@ public static class ToolService
     }
 
     /// <summary>打开文件夹</summary>
-    public static Task<string> OpenFolder(string folderName)
+    public static async Task<string> OpenFolder(string folderName)
     {
         var mcDir = InstanceService.GetMcDirectory();
-        var path = folderName switch
+        string path;
+        string? openedPath = null;
+
+        if (folderName == "mods")
+        {
+            // OpenModsFolder 内部会启动 explorer，无需重复启动
+            openedPath = await ModService.OpenModsFolder();
+            return openedPath;
+        }
+
+        path = folderName switch
         {
             "minecraft" => mcDir,
-            "mods" => ModService.OpenModsFolder().Result,
             "saves" => Path.Combine(mcDir, "saves"),
             "screenshots" => Path.Combine(mcDir, "screenshots"),
             "logs" => Path.Combine(mcDir, "logs"),
@@ -58,7 +67,7 @@ public static class ToolService
             System.Diagnostics.Process.Start("explorer.exe", path);
         }
 
-        return Task.FromResult(path);
+        return path;
     }
 
     /// <summary>检查游戏文件完整性</summary>

@@ -12,10 +12,10 @@ namespace Baihe.Host.Services;
 public static class ModService
 {
     /// <summary>获取 mods 目录路径 — 优先版本专属目录，其次全局 mods 目录</summary>
-    private static string GetModsDir()
+    private static async Task<string> GetModsDir()
     {
         var mcDir = InstanceService.GetMcDirectory();
-        var current = InstanceService.GetCurrentInstance().Result;
+        var current = await InstanceService.GetCurrentInstance();
         if (current != null)
         {
             var versionModsDir = Path.Combine(mcDir, "versions", current.Id, "mods");
@@ -28,13 +28,13 @@ public static class ModService
     }
 
     /// <summary>列出所有 mod</summary>
-    public static Task<List<ModInfo>> ListMods()
+    public static async Task<List<ModInfo>> ListMods()
     {
-        var modsDir = GetModsDir();
+        var modsDir = await GetModsDir();
         var mods = new List<ModInfo>();
 
         if (!Directory.Exists(modsDir))
-            return Task.FromResult(mods);
+            return mods;
 
         foreach (var file in Directory.GetFiles(modsDir, "*.jar"))
         {
@@ -68,34 +68,48 @@ public static class ModService
             mods.Add(mod);
         }
 
-        return Task.FromResult(mods);
+        return mods;
     }
 
     /// <summary>切换 mod 启用/禁用状态</summary>
-    public static Task<bool> ToggleMod(string fileName)
+    public static async Task<bool> ToggleMod(string fileName)
     {
-        var modsDir = GetModsDir();
-        var enabledPath = Path.Combine(modsDir, fileName);
-        var disabledPath = Path.Combine(modsDir, fileName + ".disabled");
+        var modsDir = await GetModsDir();
 
-        if (File.Exists(enabledPath))
+        // 判断当前是启用还是禁用状态
+        if (fileName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
         {
-            File.Move(enabledPath, disabledPath);
-            return Task.FromResult(false); // 现在是禁用状态
+            // 当前是禁用状态，要启用 — 移除 .disabled 后缀
+            var disabledPath = Path.Combine(modsDir, fileName);
+            var enabledName = fileName.Substring(0, fileName.Length - ".disabled".Length);
+            var enabledPath = Path.Combine(modsDir, enabledName);
+
+            if (File.Exists(disabledPath))
+            {
+                File.Move(disabledPath, enabledPath);
+                return true; // 现在是启用状态
+            }
         }
-        if (File.Exists(disabledPath))
+        else
         {
-            var originalName = fileName.Replace(".disabled", "");
-            File.Move(disabledPath, Path.Combine(modsDir, originalName));
-            return Task.FromResult(true); // 现在是启用状态
+            // 当前是启用状态，要禁用 — 添加 .disabled 后缀
+            var enabledPath = Path.Combine(modsDir, fileName);
+            var disabledPath = Path.Combine(modsDir, fileName + ".disabled");
+
+            if (File.Exists(enabledPath))
+            {
+                File.Move(enabledPath, disabledPath);
+                return false; // 现在是禁用状态
+            }
         }
+
         throw new FileNotFoundException($"未找到 mod 文件: {fileName}");
     }
 
     /// <summary>删除 mod</summary>
-    public static Task DeleteMod(string fileName)
+    public static async Task DeleteMod(string fileName)
     {
-        var modsDir = GetModsDir();
+        var modsDir = await GetModsDir();
         var path = Path.Combine(modsDir, fileName);
         if (File.Exists(path))
             File.Delete(path);
@@ -105,15 +119,14 @@ public static class ModService
             if (File.Exists(disabledPath))
                 File.Delete(disabledPath);
         }
-        return Task.CompletedTask;
     }
 
     /// <summary>打开 mods 文件夹</summary>
-    public static Task<string> OpenModsFolder()
+    public static async Task<string> OpenModsFolder()
     {
-        var modsDir = GetModsDir();
+        var modsDir = await GetModsDir();
         System.Diagnostics.Process.Start("explorer.exe", modsDir);
-        return Task.FromResult(modsDir);
+        return modsDir;
     }
 
     /// <summary>从文件名提取 mod 显示名</summary>

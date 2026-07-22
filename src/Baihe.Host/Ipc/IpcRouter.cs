@@ -67,30 +67,36 @@ public class IpcRouter
     public async Task<string> HandleAsync(string json)
     {
         IpcResponse response;
+        string messageId = "unknown";
         try
         {
             // 反序列化请求消息
             var message = JsonSerializer.Deserialize<IpcMessage>(json, _jsonOptions);
             if (message == null)
             {
-                response = new IpcResponse("unknown", false, null, "无法解析消息");
-            }
-            else if (_commands.TryGetValue(message.Cmd, out var handler))
-            {
-                // 路由到对应的处理程序
-                var result = await handler(message.Args);
-                response = new IpcResponse(message.Id, true, result, null);
+                response = new IpcResponse(messageId, false, null, "无法解析消息");
             }
             else
             {
-                // 未知命令
-                response = new IpcResponse(message.Id, false, null, $"未知命令: {message.Cmd}");
+                messageId = message.Id;
+                if (_commands.TryGetValue(message.Cmd, out var handler))
+                {
+                    // 路由到对应的处理程序
+                    var result = await handler(message.Args);
+                    response = new IpcResponse(messageId, true, result, null);
+                }
+                else
+                {
+                    // 未知命令
+                    response = new IpcResponse(messageId, false, null, $"未知命令: {message.Cmd}");
+                }
             }
         }
         catch (Exception ex)
         {
             // 捕获所有异常，避免未处理异常导致宿主崩溃
-            response = new IpcResponse("unknown", false, null, ex.Message);
+            // 使用原始消息 ID，确保前端能匹配到 pending Promise 并正确显示错误
+            response = new IpcResponse(messageId, false, null, ex.Message);
         }
 
         return JsonSerializer.Serialize(response, _jsonOptions);
