@@ -619,14 +619,16 @@ public partial class MainWindow : Window
             {
                 if (_isChatVisible)
                 {
-                    // 隐藏聊天 — 用 Hidden 保持尺寸以便后台渲染
+                    // 隐藏聊天 — 保持尺寸后台渲染，但禁用鼠标命中测试
                     ChatWebView.Visibility = Visibility.Hidden;
+                    ChatWebView.IsHitTestVisible = false;
                     _isChatVisible = false;
                 }
                 else
                 {
-                    // 显示聊天 — 覆盖主 WebView
+                    // 显示聊天 — 启用鼠标命中测试，覆盖主 WebView
                     ChatWebView.Visibility = Visibility.Visible;
+                    ChatWebView.IsHitTestVisible = true;
                     _isChatVisible = true;
                 }
             });

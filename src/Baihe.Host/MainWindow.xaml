@@ -88,10 +88,11 @@
         </Border>
 
         <!-- 主 WebView2 — 加载前端启动器页面 -->
-        <wv2:WebView2 x:Name="WebView" Grid.Row="1" />
+        <wv2:WebView2 x:Name="WebView" Grid.Row="1" Panel.ZIndex="1" />
 
         <!-- 聊天 WebView2 — 加载 chat.hhj520.top，默认隐藏但保持尺寸以便后台渲染 -->
-        <!-- 放在 WebView 之后（ZIndex 更高），显示时覆盖主 WebView -->
-        <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Visibility="Hidden" />
+        <!-- IsHitTestVisible=false 防止隐藏时拦截主 WebView 的鼠标事件 -->
+        <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Panel.ZIndex="2"
+                      Visibility="Hidden" IsHitTestVisible="False" />
     </Grid>
 </Window>
