@@ -64,13 +64,13 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      # ===== 2. 构建 JRE 21 (18 模块，覆盖 Minecraft 全部需求) =====
+      # ===== 2. 构建 JRE 21 (19 模块，覆盖 Minecraft + Fabric Mixin 全部需求) =====
       - name: Build JRE 21 with jlink
         run: |
           $jmods = "$env:JAVA_HOME\jmods"
           jlink `
             --module-path $jmods `
-            --add-modules java.base,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml,java.logging,java.security.sasl,java.transaction.xa,java.instrument,java.prefs,java.rmi,java.security.jgss,jdk.crypto.ec,jdk.zipfs,jdk.management `
+            --add-modules java.base,java.compiler,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml,java.logging,java.security.sasl,java.transaction.xa,java.instrument,java.prefs,java.rmi,java.security.jgss,jdk.crypto.ec,jdk.zipfs,jdk.management `
             --output dist\launcher\jre `
             --strip-debug --no-man-pages --no-header-files --compress=2
 
@@ -146,7 +146,7 @@ jobs:
 
             ### 包含内容
             - 白鹤启动器主程序 (自包含 .NET 10 运行时)
-            - Java 21 JRE (18 模块，jlink 最小化构建)
+            - Java 21 JRE (19 模块，jlink 最小化构建，含 java.compiler 支持 Fabric Mixin)
             - WebView2 Runtime 离线安装程序
             - Minecraft 1.21.3 + Fabric Loader 0.16.14
             - 10 个预装模组 (钠、玉、苹果皮、Xaero小地图等)
