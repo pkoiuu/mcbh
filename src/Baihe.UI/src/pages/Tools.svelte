@@ -168,8 +168,9 @@
     try {
       const result = await ipc<{ success: boolean; enabled: boolean }>('mods.toggle', fileName)
       if (result.success) {
-        mods = mods.map((m) => (m.fileName === fileName ? { ...m, enabled: result.enabled } : m))
         toast.success(result.enabled ? 'Mod 已启用' : 'Mod 已禁用')
+        // 重新加载列表，确保 fileName 与磁盘文件同步
+        await loadMods()
       } else {
         toast.error('操作失败')
       }

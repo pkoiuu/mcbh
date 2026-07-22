@@ -38,6 +38,7 @@
     palette: 'image_10',
     info: 'image_11',
     download: 'image_12',
+    'message-circle': 'image_13',
   }
 
   interface Props {

@@ -6,7 +6,7 @@
  */
 
 /** 页面类型 */
-export type PageKey = 'home' | 'download' | 'settings' | 'tools' | 'login'
+export type PageKey = 'home' | 'download' | 'settings' | 'tools' | 'login' | 'chat'
 
 /** 路由状态类 — 使用 class + $state 实现响应式 */
 class RouterState {
@@ -31,4 +31,5 @@ export const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: 'download', label: '下载', icon: 'arrow-down' },
   { key: 'settings', label: '设置', icon: 'grip' },
   { key: 'tools', label: '工具', icon: 'box' },
+  { key: 'chat', label: '聊天', icon: 'message-circle' },
 ]
