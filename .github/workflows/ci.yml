@@ -59,3 +59,12 @@ jobs:
 
       - name: Build Baihe.Host
         run: dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: baihe-build
+          path: |
+            src/Baihe.Host/bin/Release/net10.0-windows/
+            src/Baihe.Core/bin/Release/net10.0-windows/
+          retention-days: 7
