@@ -88,8 +88,9 @@ public static class MicrosoftAuthService
             // Step 3-6: 用 access_token 完成 Xbox → XSTS → Minecraft → Profile
             return await AuthenticateWithAccessTokenAsync(oauthToken.AccessToken, oauthToken.RefreshToken ?? string.Empty);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // 用户主动取消 — 直接重新抛出
             throw;
         }
         catch (InvalidOperationException)

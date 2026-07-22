@@ -615,7 +615,7 @@ public partial class MainWindow : Window
             }
 
             // 路由到 IpcRouter 处理并获取响应
-            var response = await _ipcRouter.HandleAsync(json);
+            var response = await _ipcRouter.HandleAsync(json ?? string.Empty);
 
             // 将响应回传给前端
             if (WebView.CoreWebView2 != null)
