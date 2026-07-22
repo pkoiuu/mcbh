@@ -16,13 +16,13 @@
 
   let { children }: Props = $props()
 
-  /** 处理导航点击 — 聊天页面通过 IPC 直接导航 WebView2 到外部站点 */
+  /** 处理导航点击 — 聊天页面通过 IPC 切换 ChatWebView 可见性 */
   async function handleNav(e: MouseEvent, key: string): Promise<void> {
     e.preventDefault()
     if (key === 'chat') {
-      // 聊天页面 — 直接导航 WebView2 到外部站点
+      // 聊天页面 — 切换 ChatWebView 显示/隐藏
       try {
-        await ipc('nav.external', 'https://chat.hhj520.top')
+        await ipc('chat.toggle')
       } catch {
         toast.error('无法打开聊天页面')
       }

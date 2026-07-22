@@ -87,10 +87,11 @@
             </Grid>
         </Border>
 
-        <!-- WebView2 — 加载前端页面，填满 Row1 -->
+        <!-- 主 WebView2 — 加载前端启动器页面 -->
         <wv2:WebView2 x:Name="WebView" Grid.Row="1" />
 
-        <!-- 后台 WebView2 — 隐藏的聊天消息监控，不显示在 UI 中 -->
+        <!-- 聊天 WebView2 — 加载 chat.hhj520.top，默认隐藏，点击聊天时显示 -->
+        <!-- 放在 WebView 之后（ZIndex 更高），显示时覆盖主 WebView -->
         <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Visibility="Collapsed" />
     </Grid>
 </Window>
