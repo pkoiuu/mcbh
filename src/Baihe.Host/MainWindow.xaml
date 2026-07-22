@@ -90,8 +90,8 @@
         <!-- 主 WebView2 — 加载前端启动器页面 -->
         <wv2:WebView2 x:Name="WebView" Grid.Row="1" />
 
-        <!-- 聊天 WebView2 — 加载 chat.hhj520.top，默认隐藏，点击聊天时显示 -->
+        <!-- 聊天 WebView2 — 加载 chat.hhj520.top，默认隐藏但保持尺寸以便后台渲染 -->
         <!-- 放在 WebView 之后（ZIndex 更高），显示时覆盖主 WebView -->
-        <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Visibility="Collapsed" />
+        <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Visibility="Hidden" />
     </Grid>
 </Window>

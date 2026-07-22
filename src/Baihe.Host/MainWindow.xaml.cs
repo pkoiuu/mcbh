@@ -615,24 +615,22 @@ public partial class MainWindow : Window
         // 切换聊天页面显示/隐藏 — 不导航主 WebView，而是显示/隐藏 ChatWebView
         _ipcRouter.Register("chat.toggle", async _ =>
         {
-            bool nowVisible;
             await Dispatcher.InvokeAsync(() =>
             {
                 if (_isChatVisible)
                 {
-                    // 隐藏聊天 — 显示主 WebView
-                    ChatWebView.Visibility = Visibility.Collapsed;
+                    // 隐藏聊天 — 用 Hidden 保持尺寸以便后台渲染
+                    ChatWebView.Visibility = Visibility.Hidden;
                     _isChatVisible = false;
                 }
                 else
                 {
-                    // 显示聊天 — 隐藏主 WebView
+                    // 显示聊天 — 覆盖主 WebView
                     ChatWebView.Visibility = Visibility.Visible;
                     _isChatVisible = true;
                 }
-                nowVisible = _isChatVisible;
             });
-            // 在 UI 线程外注入返回按钮
+            // 显示时注入返回按钮
             if (_isChatVisible)
             {
                 await InjectBackButtonAsync();
