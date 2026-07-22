@@ -1,41 +1,48 @@
 <!--
-  功能描述: 聊天页面 — 全屏嵌入 chat.hhj520.top
-  技术实现: iframe 全屏嵌入，无 padding，最大化聊天区域
-  注意事项: 页面根元素不加 p-8，与其它页面不同；iframe 加载超时显示错误提示
+  功能描述: 聊天页面 — 全屏嵌入 chat.hhj520.top (Element/Matrix 客户端)
+  技术实现: iframe 始终加载（不用 display:none），加载指示器作为叠加层
+  注意事项: Element 是 JS SPA，需要完整渲染时间；iframe 不能用 display:none 否则不加载
 -->
 <script lang="ts">
   let loaded = $state(false)
-  let errored = $state(false)
   let showFallback = $state(false)
 
-  /** iframe 加载完成 — 延迟显示，避免白屏闪烁 */
+  /** iframe 加载完成 */
   function handleLoad(): void {
-    // 延迟 300ms 显示，确保 iframe 内容有时间渲染
+    // 延迟 500ms 隐藏加载层，确保 Element SPA 有时间开始渲染
     setTimeout(() => {
       loaded = true
-    }, 300)
+    }, 500)
   }
 
-  /** iframe 加载失败 */
-  function handleError(): void {
-    errored = true
-    loaded = true
-  }
-
-  /** 超时检测 — 8 秒后如果仍未加载，显示回退选项 */
+  /** 超时检测 — 10 秒后如果仍未加载完成，显示回退选项 */
   $effect(() => {
     const timer = setTimeout(() => {
       if (!loaded) {
         showFallback = true
       }
-    }, 8000)
+    }, 10000)
     return () => clearTimeout(timer)
   })
 </script>
 
-<div class="min-h-0 flex-1 overflow-hidden">
-  {#if !loaded && !errored}
-    <div class="flex h-full items-center justify-center">
+<div class="relative min-h-0 flex-1 overflow-hidden">
+  <!-- iframe 始终加载 — 不能用 display:none，否则 WebView2 不会加载内容 -->
+  <iframe
+    src="https://chat.hhj520.top"
+    title="白鹤聊天"
+    class="h-full w-full border-0"
+    allow="clipboard-read; clipboard-write; microphone; camera; fullscreen; autoplay"
+    onload={handleLoad}
+  ></iframe>
+
+  <!-- 加载叠加层 — iframe 加载完成后淡出消失 -->
+  {#if !loaded}
+    <div
+      class="absolute inset-0 flex items-center justify-center bg-[var(--background)] transition-opacity duration-300"
+      class:opacity-0={loaded}
+      class:pointer-events-none={loaded}
+    >
       <div class="flex flex-col items-center gap-3">
         <div
           class="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]"
@@ -54,53 +61,4 @@
       </div>
     </div>
   {/if}
-
-  {#if errored}
-    <div class="flex h-full items-center justify-center p-8">
-      <div class="flex flex-col items-center gap-4 text-center">
-        <div class="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--secondary)]">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="text-[var(--muted-foreground)]"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-        </div>
-        <div>
-          <p class="text-base font-medium text-[var(--foreground)]">无法加载聊天页面</p>
-          <p class="mt-1 text-sm text-[var(--muted-foreground)]">
-            聊天服务器可能暂时不可用，或者该网站不允许被嵌入。
-          </p>
-        </div>
-        <a
-          href="https://chat.hhj520.top"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex h-9 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
-        >
-          在浏览器中打开
-        </a>
-      </div>
-    </div>
-  {/if}
-
-  <iframe
-    src="https://chat.hhj520.top"
-    title="白鹤聊天"
-    class="h-full w-full border-0"
-    style={loaded && !errored ? '' : 'display: none;'}
-    allow="clipboard-read; clipboard-write; microphone; camera; fullscreen"
-    onload={handleLoad}
-    onerror={handleError}
-  ></iframe>
 </div>
