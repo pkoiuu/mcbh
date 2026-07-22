@@ -12,6 +12,7 @@ using Baihe.Host.Ipc;
 using Baihe.Host.Models;
 using Baihe.Host.Services;
 using Baihe.Host.Web;
+using JsonValueKind = System.Text.Json.JsonValueKind;
 
 namespace Baihe.Host;
 
@@ -31,6 +32,12 @@ public partial class MainWindow : Window
     /// <summary>微软登录取消令牌</summary>
     private CancellationTokenSource? _msCts;
 
+    /// <summary>系统托盘服务</summary>
+    private TrayService? _trayService;
+
+    /// <summary>是否允许真正关闭（从托盘菜单退出时为 true）</summary>
+    private bool _allowClose = false;
+
     /// <summary>
     /// 创建主窗口实例
     /// </summary>
@@ -39,8 +46,28 @@ public partial class MainWindow : Window
         InitializeComponent();
         // 注册窗口控制和应用信息命令
         RegisterHostCommands();
+        // 创建系统托盘服务
+        _trayService = new TrayService(this);
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
+    }
+
+    /// <summary>
+    /// 窗口关闭拦截 — 最小化到托盘而非直接关闭
+    /// </summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_allowClose && _trayService != null)
+        {
+            // 首次关闭 → 最小化到托盘
+            e.Cancel = true;
+            _trayService.HideToTray();
+            return;
+        }
+
+        // 真正退出时释放托盘资源
+        _trayService?.Dispose();
+        base.OnClosing(e);
     }
 
     /// <summary>
@@ -575,6 +602,18 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // 检查是否是聊天消息通知
+            if (json != null && json.StartsWith("__chat_notify__:"))
+            {
+                var messageContent = json["__chat_notify__:".Length..];
+                // 窗口隐藏到托盘或未激活时，显示托盘通知
+                if (_trayService is { IsHiddenToTray: true } || !IsActive)
+                {
+                    _trayService?.ShowNotification("白鹤聊天", $"收到新消息: {messageContent}", 5000);
+                }
+                return;
+            }
+
             // 路由到 IpcRouter 处理并获取响应
             var response = await _ipcRouter.HandleAsync(json);
 
@@ -592,7 +631,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 向外部页面注入浮动返回按钮 — 点击后导航回应用主页
+    /// 向外部页面注入浮动返回按钮和聊天消息监控 — 点击返回导航回应用主页
     /// </summary>
     private async Task InjectBackButtonAsync()
     {
@@ -601,6 +640,8 @@ public partial class MainWindow : Window
         var script = """
             (function() {
                 if (document.getElementById('__baihe_back__')) return;
+
+                // === 返回按钮 ===
                 var btn = document.createElement('div');
                 btn.id = '__baihe_back__';
                 btn.innerHTML = '← 返回';
@@ -632,6 +673,69 @@ public partial class MainWindow : Window
                     window.chrome.webview.postMessage('__nav_back__');
                 };
                 document.body.appendChild(btn);
+
+                // === 聊天消息监控 ===
+                // 使用 MutationObserver 监控 DOM 变化，检测新消息到达
+                var lastNotifiedMsg = '';
+                var notifyThrottle = null;
+
+                function extractLatestMessage() {
+                    // Element 客户端的消息选择器 — 尝试多种选择器以适应不同版本
+                    var selectors = [
+                        '.mx_EventTile_last .mx_EventTile_line',
+                        '.mx_RoomView_MessageList .mx_EventTile:last-child .mx_EventTile_line',
+                        '.mx_EventTile .mx_MTextBody',
+                        '[data-testid="eventTileMessage"]'
+                    ];
+                    for (var i = 0; i < selectors.length; i++) {
+                        var els = document.querySelectorAll(selectors[i]);
+                        if (els.length > 0) {
+                            var last = els[els.length - 1];
+                            var text = last.textContent || last.innerText || '';
+                            if (text && text.trim().length > 0) {
+                                return text.trim().substring(0, 100);
+                            }
+                        }
+                    }
+                    return null;
+                }
+
+                function checkForNewMessage() {
+                    var msg = extractLatestMessage();
+                    if (msg && msg !== lastNotifiedMsg) {
+                        lastNotifiedMsg = msg;
+                        // 仅在页面不在前台时发送通知
+                        if (document.hidden || !document.hasFocus()) {
+                            // 节流：避免短时间大量通知
+                            if (notifyThrottle) clearTimeout(notifyThrottle);
+                            notifyThrottle = setTimeout(function() {
+                                window.chrome.webview.postMessage('__chat_notify__:' + msg);
+                            }, 1000);
+                        }
+                    }
+                }
+
+                // 监听 DOM 变化
+                var observer = new MutationObserver(function(mutations) {
+                    var hasNewContent = mutations.some(function(m) {
+                        return m.addedNodes.length > 0;
+                    });
+                    if (hasNewContent) {
+                        checkForNewMessage();
+                    }
+                });
+
+                // 延迟启动观察器，等待 Element SPA 渲染完成
+                setTimeout(function() {
+                    var target = document.body;
+                    if (target) {
+                        observer.observe(target, {
+                            childList: true,
+                            subtree: true,
+                            characterData: false
+                        });
+                    }
+                }, 3000);
             })();
         """;
 
@@ -641,7 +745,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[WebView2] 注入返回按钮失败: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[WebView2] 注入脚本失败: {ex.Message}");
         }
     }
 }

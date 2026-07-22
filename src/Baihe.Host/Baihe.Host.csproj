@@ -20,6 +20,7 @@
         <EnableWindowsTargeting>true</EnableWindowsTargeting>
         <OutputType>WinExe</OutputType>
         <UseWPF>true</UseWPF>
+        <UseWindowsForms>true</UseWindowsForms>
         <!-- 修复 .NET 10 SDK 10.0.302 glob 展开问题: **/*.cs, **/*.xaml, **/*.resx 未被正确展开 -->
         <EnableDefaultPageItems>false</EnableDefaultPageItems>
         <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -94,6 +95,7 @@
         <Compile Include="Services\ModService.cs" />
         <Compile Include="Services\SaveService.cs" />
         <Compile Include="Services\ToolService.cs" />
+        <Compile Include="Services\TrayService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

@@ -23,8 +23,8 @@ public static class MicrosoftAuthService
     /// <summary>Azure AD v2.0 Client ID — 使用 Prism Launcher 公开注册的应用 ID，支持设备码流程</summary>
     private const string ClientId = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb";
 
-    /// <summary>OAuth Scope — XboxLive.SignIn 用于 Xbox Live 认证，offline_access 用于获取 refresh_token</summary>
-    private const string OAuthScope = "XboxLive.SignIn XboxLive.offline_access";
+    /// <summary>OAuth Scope — XboxLive.SignIn 用于 Xbox Live 认证，offline_access 是标准 OIDC scope 用于获取 refresh_token</summary>
+    private const string OAuthScope = "XboxLive.SignIn offline_access";
 
     /// <summary>设备码端点</summary>
     private const string DeviceCodeUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
@@ -91,6 +91,19 @@ public static class MicrosoftAuthService
         catch (OperationCanceledException)
         {
             throw;
+        }
+        catch (InvalidOperationException)
+        {
+            // 已经是有意义的错误消息，直接重新抛出
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException($"网络请求失败: {ex.Message}。请检查网络连接后重试。", ex);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException($"请求超时，请检查网络连接后重试。", ex);
         }
         catch (Exception ex)
         {
