@@ -25,6 +25,9 @@ public partial class MainWindow : Window
     /// </summary>
     private readonly IpcRouter _ipcRouter = new();
 
+    /// <summary>是否正在外部网站导航中（聊天页面等）</summary>
+    private bool _isExternalNav = false;
+
     /// <summary>微软登录取消令牌</summary>
     private CancellationTokenSource? _msCts;
 
@@ -422,6 +425,22 @@ public partial class MainWindow : Window
         {
             return await ToolService.RepairGame();
         });
+
+        // 导航到外部网站 — 用于聊天页面等需要完整加载的外部站点
+        _ipcRouter.Register("nav.external", async args =>
+        {
+            var url = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            if (string.IsNullOrEmpty(url))
+                throw new ArgumentException("URL 不能为空");
+
+            _isExternalNav = true;
+            Dispatcher.Invoke(() =>
+            {
+                WebView.CoreWebView2?.Navigate(url);
+            });
+            return new { success = true };
+        });
     }
 
     /// <summary>
@@ -481,7 +500,7 @@ public partial class MainWindow : Window
             // 设置虚拟主机名到文件夹映射 — 前端通过 https://baihe.app/ 访问本地资源
             WebViewHost.SetupResourceMapping(coreWebView);
 
-            // 导航完成事件 — 仅捕获加载失败，成功时无需额外处理
+            // 导航完成事件 — 注入返回按钮或捕获加载失败
             coreWebView.NavigationCompleted += (_, e) =>
             {
                 if (!e.IsSuccess)
@@ -495,6 +514,13 @@ public partial class MainWindow : Window
                             MessageBoxButton.OK,
                             MessageBoxImage.Warning);
                     });
+                    return;
+                }
+
+                // 外部网站导航完成后 — 注入浮动返回按钮
+                if (_isExternalNav)
+                {
+                    _ = InjectBackButtonAsync();
                 }
             };
 
@@ -537,6 +563,18 @@ public partial class MainWindow : Window
             // 获取前端发来的 JSON 消息
             var json = e.TryGetWebMessageAsString();
 
+            // 检查是否是外部页面的返回按钮消息
+            if (json == "__nav_back__")
+            {
+                _isExternalNav = false;
+                Dispatcher.Invoke(() =>
+                {
+                    var url = WebViewHost.GetEntryPointUrl();
+                    WebView.CoreWebView2?.Navigate(url);
+                });
+                return;
+            }
+
             // 路由到 IpcRouter 处理并获取响应
             var response = await _ipcRouter.HandleAsync(json);
 
@@ -550,6 +588,60 @@ public partial class MainWindow : Window
         {
             // 记录错误到调试输出，避免静默失败
             System.Diagnostics.Debug.WriteLine($"[IPC] 处理消息失败: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// 向外部页面注入浮动返回按钮 — 点击后导航回应用主页
+    /// </summary>
+    private async Task InjectBackButtonAsync()
+    {
+        if (WebView.CoreWebView2 == null) return;
+
+        var script = """
+            (function() {
+                if (document.getElementById('__baihe_back__')) return;
+                var btn = document.createElement('div');
+                btn.id = '__baihe_back__';
+                btn.innerHTML = '← 返回';
+                btn.style.cssText = [
+                    'position:fixed',
+                    'top:16px',
+                    'left:16px',
+                    'z-index:2147483647',
+                    'padding:8px 16px',
+                    'border-radius:10px',
+                    'background:rgba(26,26,28,0.9)',
+                    'color:#ffffff',
+                    'font-size:13px',
+                    'font-family:-apple-system,BlinkMacSystemFont,sans-serif',
+                    'font-weight:500',
+                    'cursor:pointer',
+                    'border:1px solid rgba(255,255,255,0.12)',
+                    'backdrop-filter:blur(12px)',
+                    '-webkit-backdrop-filter:blur(12px)',
+                    'box-shadow:0 2px 12px rgba(0,0,0,0.3)',
+                    'transition:background 0.2s,transform 0.1s',
+                    'user-select:none'
+                ].join(';');
+                btn.onmouseenter = function() { btn.style.background = 'rgba(50,50,55,0.95)'; };
+                btn.onmouseleave = function() { btn.style.background = 'rgba(26,26,28,0.9)'; };
+                btn.onmousedown = function() { btn.style.transform = 'scale(0.95)'; };
+                btn.onmouseup = function() { btn.style.transform = 'scale(1)'; };
+                btn.onclick = function() {
+                    window.chrome.webview.postMessage('__nav_back__');
+                };
+                document.body.appendChild(btn);
+            })();
+        """;
+
+        try
+        {
+            await WebView.CoreWebView2.ExecuteScriptAsync(script);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[WebView2] 注入返回按钮失败: {ex.Message}");
         }
     }
 }

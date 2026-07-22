@@ -7,6 +7,7 @@
   import Icon from '../lib/Icon.svelte'
   import { router, navItems } from '../lib/router.svelte'
   import { ipc } from '../lib/ipc'
+  import { toast } from '../lib/toast.svelte'
   import type { Snippet } from 'svelte'
 
   interface Props {
@@ -14,6 +15,21 @@
   }
 
   let { children }: Props = $props()
+
+  /** 处理导航点击 — 聊天页面通过 IPC 直接导航 WebView2 到外部站点 */
+  async function handleNav(e: MouseEvent, key: string): Promise<void> {
+    e.preventDefault()
+    if (key === 'chat') {
+      // 聊天页面 — 直接导航 WebView2 到外部站点
+      try {
+        await ipc('nav.external', 'https://chat.hhj520.top')
+      } catch {
+        toast.error('无法打开聊天页面')
+      }
+      return
+    }
+    router.navigate(key)
+  }
 
   // 用户信息 — 从 IPC 获取，响应式更新
   let username = $state('未设置')
@@ -85,14 +101,11 @@
   <nav class="mt-3 flex flex-col gap-1" aria-label="主导航">
     {#each navItems as item (item.key)}
       <a
-        href="#"
-        class="group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
-        data-active={router.current === item.key}
-        onclick={(e) => {
-          e.preventDefault()
-          router.navigate(item.key)
-        }}
-      >
+      href="#"
+      class="group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
+      data-active={router.current === item.key}
+      onclick={(e) => handleNav(e, item.key)}
+    >
         <span class="flex items-center text-[var(--icon-muted)] group-data-[active=true]:text-[var(--primary)]">
           <Icon name={item.icon} size={18} />
         </span>

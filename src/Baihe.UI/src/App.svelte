@@ -13,7 +13,6 @@
   import Settings from './pages/Settings.svelte'
   import Tools from './pages/Tools.svelte'
   import Login from './pages/Login.svelte'
-  import Chat from './pages/Chat.svelte'
 </script>
 
 <WindowShell>
@@ -28,8 +27,6 @@
       <Tools />
     {:else if router.current === 'login'}
       <Login />
-    {:else if router.current === 'chat'}
-      <Chat />
     {/if}
   </Sidebar>
 </WindowShell>
