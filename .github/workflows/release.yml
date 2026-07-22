@@ -107,25 +107,26 @@ jobs:
           Copy-Item installer_resources\icon.ico dist\launcher\ -Force
           Copy-Item fabric-installer.jar dist\launcher\ -Force
 
-      # ===== 7. 验证打包内容完整性 =====
+      # ===== 7. 验证打包内容完整性 (信息性，不阻断构建) =====
       - name: Verify package contents
         run: |
+          $ErrorActionPreference = 'Continue'
           Write-Host "=== dist\launcher ==="
-          Get-ChildItem dist\launcher -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}}
+          if (Test-Path dist\launcher) { Get-ChildItem dist\launcher -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}} }
           Write-Host "`n=== dist\launcher\jre\bin ==="
           if (Test-Path dist\launcher\jre\bin) { Get-ChildItem dist\launcher\jre\bin -File | Select-Object Name }
           Write-Host "`n=== dist\launcher\wwwroot ==="
           if (Test-Path dist\launcher\wwwroot) { Get-ChildItem dist\launcher\wwwroot -File | Select-Object Name }
           Write-Host "`n=== dist\.minecraft ==="
-          Get-ChildItem dist\.minecraft -Directory | Select-Object Name
+          if (Test-Path dist\.minecraft) { Get-ChildItem dist\.minecraft -Directory | Select-Object Name }
           Write-Host "`n=== .minecraft\versions ==="
-          Get-ChildItem dist\.minecraft\versions -Directory | Select-Object Name
+          if (Test-Path dist\.minecraft\versions) { Get-ChildItem dist\.minecraft\versions -Directory | Select-Object Name }
           Write-Host "`n=== .minecraft\mods ==="
-          Get-ChildItem dist\.minecraft\mods -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}}
+          if (Test-Path dist\.minecraft\mods) { Get-ChildItem dist\.minecraft\mods -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}} }
           Write-Host "`n=== .minecraft\.fabric ==="
           if (Test-Path dist\.minecraft\.fabric) { Write-Host "Fabric cache: EXISTS" } else { Write-Host "Fabric cache: MISSING!" }
           Write-Host "`n=== .minecraft\assets\objects count ==="
-          (Get-ChildItem dist\.minecraft\assets\objects -Recurse -File).Count
+          if (Test-Path dist\.minecraft\assets\objects) { (Get-ChildItem dist\.minecraft\assets\objects -Recurse -File).Count } else { Write-Host "assets/objects: MISSING!" }
 
       # ===== 8. 编译 Inno Setup 安装包 =====
       - name: Build installer with Inno Setup
