@@ -3,6 +3,8 @@
 
 using System;
 using System.Drawing;
+using System.Media;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Application = System.Windows.Application;
 
@@ -16,6 +18,10 @@ public class TrayService : IDisposable
     private readonly NotifyIcon _notifyIcon;
     private readonly System.Windows.Window _mainWindow;
     private bool _disposed;
+
+    // Win32 MessageBeep — 用于播放系统提示音
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool MessageBeep(uint type);
 
     /// <summary>
     /// 是否已最小化到托盘
@@ -52,24 +58,42 @@ public class TrayService : IDisposable
     }
 
     /// <summary>
-    /// 加载应用图标 — 从嵌入资源或文件加载
+    /// 加载应用图标 — 尝试多种方式确保图标可见
     /// </summary>
     private static Icon LoadAppIcon()
     {
         try
         {
-            // 尝试从 exe 所在目录加载 icon.ico
+            // 方式1: 从嵌入资源加载（WPF Resource — 编译时打包到 exe）
+            var resourceUri = new Uri("pack://application:,,,/Assets/icon.ico", UriKind.Absolute);
+            using var stream = System.Windows.Application.GetResourceStream(resourceUri)?.Stream;
+            if (stream != null)
+            {
+                return new Icon(stream);
+            }
+        }
+        catch { /* 忽略，尝试下一种方式 */ }
+
+        try
+        {
+            // 方式2: 从 exe 所在目录的 Assets 文件夹加载
             var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
             if (System.IO.File.Exists(iconPath))
                 return new Icon(iconPath);
+        }
+        catch { /* 忽略，尝试下一种方式 */ }
 
-            // 回退到默认系统图标
-            return SystemIcons.Application;
-        }
-        catch
+        try
         {
-            return SystemIcons.Application;
+            // 方式3: 从 exe 自身提取关联图标
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+                return Icon.ExtractAssociatedIcon(exePath) ?? SystemIcons.Application;
         }
+        catch { /* 忽略 */ }
+
+        // 最终回退到系统默认图标
+        return SystemIcons.Application;
     }
 
     /// <summary>
@@ -98,14 +122,16 @@ public class TrayService : IDisposable
     }
 
     /// <summary>
-    /// 显示托盘气球通知
+    /// 显示托盘气球通知并播放提示音
     /// </summary>
     /// <param name="title">标题</param>
     /// <param name="message">消息内容</param>
     /// <param name="timeout">显示时长（毫秒）</param>
-    public void ShowNotification(string title, string message, int timeout = 3000)
+    public void ShowNotification(string title, string message, int timeout = 5000)
     {
         _notifyIcon.ShowBalloonTip(timeout, title, message, ToolTipIcon.Info);
+        // 播放系统信息提示音 (MB_ICONINFORMATION = 0x00000040)
+        MessageBeep(0x00000040);
     }
 
     /// <summary>

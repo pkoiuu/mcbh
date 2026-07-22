@@ -38,6 +38,9 @@ public partial class MainWindow : Window
     /// <summary>是否允许真正关闭（从托盘菜单退出时为 true）</summary>
     private bool _allowClose = false;
 
+    /// <summary>后台聊天 WebView2 是否已初始化</summary>
+    private bool _chatWebViewReady = false;
+
     /// <summary>
     /// 创建主窗口实例
     /// </summary>
@@ -50,6 +53,8 @@ public partial class MainWindow : Window
         _trayService = new TrayService(this);
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
+        // 异步初始化后台聊天 WebView2 — 持续监控消息
+        _ = InitializeChatWebViewAsync();
     }
 
     /// <summary>
@@ -68,6 +73,141 @@ public partial class MainWindow : Window
         // 真正退出时释放托盘资源
         _trayService?.Dispose();
         base.OnClosing(e);
+    }
+
+    /// <summary>
+    /// 初始化后台聊天 WebView2 — 始终加载 chat.hhj520.top，持续监控新消息
+    /// </summary>
+    private async Task InitializeChatWebViewAsync()
+    {
+        try
+        {
+            await ChatWebView.EnsureCoreWebView2Async();
+            var coreWebView = ChatWebView.CoreWebView2;
+
+            // 禁用右键菜单和开发者工具
+            coreWebView.Settings.AreDefaultContextMenusEnabled = false;
+            coreWebView.Settings.AreDevToolsEnabled = false;
+
+            // 导航到聊天页面
+            coreWebView.Navigate("https://chat.hhj520.top");
+
+            // 导航完成后注入消息监控脚本
+            coreWebView.NavigationCompleted += async (_, e) =>
+            {
+                if (!e.IsSuccess) return;
+                await InjectChatMonitorScriptAsync();
+            };
+
+            // 接收后台 WebView 的消息
+            ChatWebView.WebMessageReceived += OnChatMessageReceived;
+
+            _chatWebViewReady = true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatWebView] 初始化失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 向后台聊天 WebView 注入消息监控脚本
+    /// </summary>
+    private async Task InjectChatMonitorScriptAsync()
+    {
+        if (ChatWebView.CoreWebView2 == null) return;
+
+        var script = """
+            (function() {
+                if (window.__baihe_monitor__) return;
+                window.__baihe_monitor__ = true;
+
+                var lastNotifiedMsg = '';
+                var notifyThrottle = null;
+
+                function extractLatestMessage() {
+                    var selectors = [
+                        '.mx_EventTile_last .mx_EventTile_line',
+                        '.mx_RoomView_MessageList .mx_EventTile:last-child .mx_EventTile_line',
+                        '.mx_EventTile .mx_MTextBody',
+                        '[data-testid="eventTileMessage"]'
+                    ];
+                    for (var i = 0; i < selectors.length; i++) {
+                        var els = document.querySelectorAll(selectors[i]);
+                        if (els.length > 0) {
+                            var last = els[els.length - 1];
+                            var text = last.textContent || last.innerText || '';
+                            if (text && text.trim().length > 0) {
+                                return text.trim().substring(0, 100);
+                            }
+                        }
+                    }
+                    return null;
+                }
+
+                function checkForNewMessage() {
+                    var msg = extractLatestMessage();
+                    if (msg && msg !== lastNotifiedMsg) {
+                        lastNotifiedMsg = msg;
+                        // 节流：避免短时间大量通知
+                        if (notifyThrottle) clearTimeout(notifyThrottle);
+                        notifyThrottle = setTimeout(function() {
+                            window.chrome.webview.postMessage('__chat_notify__:' + msg);
+                        }, 1000);
+                    }
+                }
+
+                var observer = new MutationObserver(function(mutations) {
+                    var hasNewContent = mutations.some(function(m) {
+                        return m.addedNodes.length > 0;
+                    });
+                    if (hasNewContent) {
+                        checkForNewMessage();
+                    }
+                });
+
+                // 延迟启动观察器，等待 Element SPA 渲染完成
+                setTimeout(function() {
+                    var target = document.body;
+                    if (target) {
+                        observer.observe(target, {
+                            childList: true,
+                            subtree: true
+                        });
+                    }
+                }, 5000);
+            })();
+        """;
+
+        try
+        {
+            await ChatWebView.CoreWebView2.ExecuteScriptAsync(script);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatWebView] 注入监控脚本失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 处理后台聊天 WebView 的消息 — 新消息通知
+    /// </summary>
+    private void OnChatMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        var json = e.TryGetWebMessageAsString();
+        if (json == null) return;
+
+        // 检查是否是聊天消息通知
+        if (json.StartsWith("__chat_notify__:"))
+        {
+            var messageContent = json["__chat_notify__:".Length..];
+            // 当窗口在托盘、未激活、或用户不在聊天页面时，显示通知
+            var shouldNotify = (_trayService is { IsHiddenToTray: true }) || !IsActive || !_isExternalNav;
+            if (shouldNotify)
+            {
+                _trayService?.ShowNotification("白鹤聊天", $"收到新消息: {messageContent}", 5000);
+            }
+        }
     }
 
     /// <summary>
@@ -602,18 +742,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // 检查是否是聊天消息通知
-            if (json != null && json.StartsWith("__chat_notify__:"))
-            {
-                var messageContent = json["__chat_notify__:".Length..];
-                // 窗口隐藏到托盘或未激活时，显示托盘通知
-                if (_trayService is { IsHiddenToTray: true } || !IsActive)
-                {
-                    _trayService?.ShowNotification("白鹤聊天", $"收到新消息: {messageContent}", 5000);
-                }
-                return;
-            }
-
             // 路由到 IpcRouter 处理并获取响应
             var response = await _ipcRouter.HandleAsync(json ?? string.Empty);
 
@@ -631,7 +759,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 向外部页面注入浮动返回按钮和聊天消息监控 — 点击返回导航回应用主页
+    /// 向外部页面注入浮动返回按钮 — 不遮挡内容，hover 时展开显示文字
     /// </summary>
     private async Task InjectBackButtonAsync()
     {
@@ -641,101 +769,56 @@ public partial class MainWindow : Window
             (function() {
                 if (document.getElementById('__baihe_back__')) return;
 
-                // === 返回按钮 ===
+                // === 返回按钮 — 半透明小圆点，不遮挡内容 ===
                 var btn = document.createElement('div');
                 btn.id = '__baihe_back__';
-                btn.innerHTML = '← 返回';
+                btn.innerHTML = '←';
                 btn.style.cssText = [
                     'position:fixed',
-                    'top:16px',
-                    'left:16px',
+                    'top:12px',
+                    'left:12px',
                     'z-index:2147483647',
-                    'padding:8px 16px',
-                    'border-radius:10px',
-                    'background:rgba(26,26,28,0.9)',
+                    'width:32px',
+                    'height:32px',
+                    'line-height:32px',
+                    'text-align:center',
+                    'border-radius:50%',
+                    'background:rgba(26,26,28,0.7)',
                     'color:#ffffff',
-                    'font-size:13px',
+                    'font-size:16px',
                     'font-family:-apple-system,BlinkMacSystemFont,sans-serif',
-                    'font-weight:500',
                     'cursor:pointer',
-                    'border:1px solid rgba(255,255,255,0.12)',
-                    'backdrop-filter:blur(12px)',
-                    '-webkit-backdrop-filter:blur(12px)',
-                    'box-shadow:0 2px 12px rgba(0,0,0,0.3)',
-                    'transition:background 0.2s,transform 0.1s',
-                    'user-select:none'
+                    'border:1px solid rgba(255,255,255,0.1)',
+                    'backdrop-filter:blur(8px)',
+                    '-webkit-backdrop-filter:blur(8px)',
+                    'box-shadow:0 1px 6px rgba(0,0,0,0.2)',
+                    'transition:all 0.2s ease',
+                    'user-select:none',
+                    'overflow:hidden',
+                    'white-space:nowrap'
                 ].join(';');
-                btn.onmouseenter = function() { btn.style.background = 'rgba(50,50,55,0.95)'; };
-                btn.onmouseleave = function() { btn.style.background = 'rgba(26,26,28,0.9)'; };
+
+                // hover 时展开为带文字的胶囊
+                btn.onmouseenter = function() {
+                    btn.style.background = 'rgba(26,26,28,0.95)';
+                    btn.style.width = 'auto';
+                    btn.style.padding = '0 14px';
+                    btn.style.borderRadius = '16px';
+                    btn.innerHTML = '← 返回';
+                };
+                btn.onmouseleave = function() {
+                    btn.style.background = 'rgba(26,26,28,0.7)';
+                    btn.style.width = '32px';
+                    btn.style.padding = '0';
+                    btn.style.borderRadius = '50%';
+                    btn.innerHTML = '←';
+                };
                 btn.onmousedown = function() { btn.style.transform = 'scale(0.95)'; };
                 btn.onmouseup = function() { btn.style.transform = 'scale(1)'; };
                 btn.onclick = function() {
                     window.chrome.webview.postMessage('__nav_back__');
                 };
                 document.body.appendChild(btn);
-
-                // === 聊天消息监控 ===
-                // 使用 MutationObserver 监控 DOM 变化，检测新消息到达
-                var lastNotifiedMsg = '';
-                var notifyThrottle = null;
-
-                function extractLatestMessage() {
-                    // Element 客户端的消息选择器 — 尝试多种选择器以适应不同版本
-                    var selectors = [
-                        '.mx_EventTile_last .mx_EventTile_line',
-                        '.mx_RoomView_MessageList .mx_EventTile:last-child .mx_EventTile_line',
-                        '.mx_EventTile .mx_MTextBody',
-                        '[data-testid="eventTileMessage"]'
-                    ];
-                    for (var i = 0; i < selectors.length; i++) {
-                        var els = document.querySelectorAll(selectors[i]);
-                        if (els.length > 0) {
-                            var last = els[els.length - 1];
-                            var text = last.textContent || last.innerText || '';
-                            if (text && text.trim().length > 0) {
-                                return text.trim().substring(0, 100);
-                            }
-                        }
-                    }
-                    return null;
-                }
-
-                function checkForNewMessage() {
-                    var msg = extractLatestMessage();
-                    if (msg && msg !== lastNotifiedMsg) {
-                        lastNotifiedMsg = msg;
-                        // 仅在页面不在前台时发送通知
-                        if (document.hidden || !document.hasFocus()) {
-                            // 节流：避免短时间大量通知
-                            if (notifyThrottle) clearTimeout(notifyThrottle);
-                            notifyThrottle = setTimeout(function() {
-                                window.chrome.webview.postMessage('__chat_notify__:' + msg);
-                            }, 1000);
-                        }
-                    }
-                }
-
-                // 监听 DOM 变化
-                var observer = new MutationObserver(function(mutations) {
-                    var hasNewContent = mutations.some(function(m) {
-                        return m.addedNodes.length > 0;
-                    });
-                    if (hasNewContent) {
-                        checkForNewMessage();
-                    }
-                });
-
-                // 延迟启动观察器，等待 Element SPA 渲染完成
-                setTimeout(function() {
-                    var target = document.body;
-                    if (target) {
-                        observer.observe(target, {
-                            childList: true,
-                            subtree: true,
-                            characterData: false
-                        });
-                    }
-                }, 3000);
             })();
         """;
 

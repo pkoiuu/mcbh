@@ -37,6 +37,11 @@
         <!-- 应用图标 -->
         <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     </PropertyGroup>
+
+    <!-- 资源文件 — icon.ico 嵌入为 WPF Resource 供 TrayService 加载 -->
+    <ItemGroup>
+        <Resource Include="Assets\icon.ico" />
+    </ItemGroup>
     <!-- 构建配置 -->
     <PropertyGroup Condition="'$(Configuration)' == 'Debug' Or '$(Configuration)' == 'CI' Or '$(Configuration)' == 'DebugCI'">
         <DebugSymbols>true</DebugSymbols>

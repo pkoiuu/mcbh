@@ -89,5 +89,8 @@
 
         <!-- WebView2 — 加载前端页面，填满 Row1 -->
         <wv2:WebView2 x:Name="WebView" Grid.Row="1" />
+
+        <!-- 后台 WebView2 — 隐藏的聊天消息监控，不显示在 UI 中 -->
+        <wv2:WebView2 x:Name="ChatWebView" Grid.Row="1" Visibility="Collapsed" />
     </Grid>
 </Window>
