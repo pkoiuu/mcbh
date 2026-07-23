@@ -39,6 +39,9 @@
     info: 'image_11',
     download: 'image_12',
     'message-circle': 'image_13',
+    // circle-x — 图标集中暂无 x-circle/close 图标，暂映射到 circle-question-mark(image_11) 作为错误/警示占位
+    'circle-x': 'image_11',
+    'settings': 'image_3',
   }
 
   interface Props {

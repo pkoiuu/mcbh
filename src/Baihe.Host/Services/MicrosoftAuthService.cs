@@ -32,9 +32,6 @@ public static class MicrosoftAuthService
     /// <summary>OAuth Token 端点</summary>
     private const string OAuthTokenUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
-    /// <summary>OAuth 刷新端点 — 使用 v2.0 端点，与 Client ID 匹配</summary>
-    private const string OAuthRefreshUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
-
     /// <summary>Xbox Live 认证端点</summary>
     private const string XboxAuthUrl = "https://user.auth.xboxlive.com/user/authenticate";
 
@@ -548,7 +545,7 @@ public static class MicrosoftAuthService
 
         var content = new FormUrlEncodedContent(parameters);
 
-        using var response = await _http.PostAsync(OAuthRefreshUrl, content);
+        using var response = await _http.PostAsync(OAuthTokenUrl, content);
         var json = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)

@@ -444,16 +444,7 @@ public static class DownloadService
     /// <summary>
     /// 格式化文件大小
     /// </summary>
-    private static string FormatSize(long bytes)
-    {
-        return bytes switch
-        {
-            < 1024 => $"{bytes} B",
-            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
-            _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB",
-        };
-    }
+    private static string FormatSize(long bytes) => FormatHelper.FormatSize(bytes);
 
     /// <summary>
     /// 推送下载进度事件

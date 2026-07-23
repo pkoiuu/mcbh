@@ -25,6 +25,9 @@ public static class VersionService
     /// <summary>缓存有效期（24 小时）</summary>
     private static readonly TimeSpan CacheExpiry = TimeSpan.FromHours(24);
 
+    /// <summary>HTTP 客户端单例 — 复用连接池，避免每次请求创建新实例</summary>
+    private static readonly HttpClient s_httpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+
     /// <summary>
     /// 获取版本清单 — 优先使用缓存，过期则从 Mojang API 获取
     /// </summary>
@@ -82,9 +85,7 @@ public static class VersionService
         }
 
         // 从 Mojang API 获取
-        using var http = new HttpClient();
-        http.Timeout = TimeSpan.FromSeconds(30);
-        var json = await http.GetStringAsync(ManifestUrl);
+        var json = await s_httpClient.GetStringAsync(ManifestUrl);
         var manifest = JsonSerializer.Deserialize<VersionManifest>(json, JsonOptions)
             ?? throw new InvalidOperationException("无法解析版本清单");
 

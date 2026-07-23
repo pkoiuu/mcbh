@@ -262,13 +262,7 @@ public static class SaveService
     }
 
     /// <summary>格式化文件大小</summary>
-    private static string FormatSize(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:.0} KB";
-        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):.1} MB";
-        return $"{bytes / (1024.0 * 1024 * 1024):.2f} GB";
-    }
+    private static string FormatSize(long bytes) => FormatHelper.FormatSize(bytes);
 }
 
 /// <summary>存档信息</summary>

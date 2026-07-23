@@ -156,12 +156,7 @@ public static class ModService
     }
 
     /// <summary>格式化文件大小</summary>
-    private static string FormatSize(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:.0} KB";
-        return $"{bytes / (1024.0 * 1024):.1} MB";
-    }
+    private static string FormatSize(long bytes) => FormatHelper.FormatSize(bytes);
 }
 
 /// <summary>Mod 信息</summary>

@@ -129,7 +129,6 @@
   --border: var(--background-300);
   --input: var(--background-400);
   --ring: var(--brand-500);
-  --icon-color: var(--icon-900);
   --icon-muted: var(--icon-500);
   --sidebar: var(--background-200);
   --sidebar-foreground: var(--text-800);
@@ -143,10 +142,12 @@
   /* Typography */
   --font-sans: 'DM Sans', ui-sans-serif, sans-serif, system-ui;
   --font-mono: 'JetBrains Mono', monospace;
-  --tracking-normal: 0em;
 
   /* Radius — 单层圆角系统 */
   --radius: 1.2rem;
+
+  /* Spacing — Tailwind v4 间距基准 */
+  --spacing: 0.24rem;
 
   /* Shadows — 7 级 */
   --shadow-2xs: 0 1px 2px -1px rgba(0, 0, 0, 0.04);
@@ -157,9 +158,6 @@
   --shadow-lg: 0 8px 24px -8px rgba(0, 0, 0, 0.08), 0 4px 8px -4px rgba(0, 0, 0, 0.05);
   --shadow-xl: 0 16px 40px -10px rgba(0, 0, 0, 0.10), 0 8px 16px -8px rgba(0, 0, 0, 0.06);
   --shadow-2xl: 0 24px 64px -12px rgba(0, 0, 0, 0.12);
-
-  /* Spacing */
-  --spacing: 0.24rem;
 }
 
 /* ===== Semantic Roles (暗色) — 继承 Primitive Palette ===== */
@@ -185,7 +183,6 @@
   --border: var(--background-700);
   --input: var(--background-700);
   --ring: var(--brand-400);
-  --icon-color: var(--icon-50);
   --icon-muted: var(--icon-500);
   --sidebar: var(--background-800);
   --sidebar-foreground: var(--text-50);
@@ -267,15 +264,6 @@ body {
   background: var(--background-500);
 }
 
-/* ===== 工具类: 隐藏滚动条 ===== */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
 /* ===== 工具类: 图标 mask 渲染 ===== */
 [data-icon] {
   display: inline-flex;
@@ -290,55 +278,10 @@ body {
   background-color: currentColor;
 }
 
-/* ===== 页面切换动画 ===== */
-@keyframes page-enter {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.995);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.page-enter {
-  animation: page-enter 0.25s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 /* ===== 导航项微交互 ===== */
 .nav-item {
   transition: background-color 0.2s, color 0.2s, transform 0.15s;
 }
 .nav-item:active {
   transform: scale(0.97);
-}
-
-/* ===== 按钮通用微交互 — 只对带 .btn-press 类的元素生效 ===== */
-.btn-press:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-/* ===== 淡入动画工具类 ===== */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.fade-in {
-  animation: fade-in 0.3s ease-out;
-}
-
-/* ===== 上滑淡入动画工具类 ===== */
-@keyframes slide-up-fade {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.slide-up-fade {
-  animation: slide-up-fade 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }

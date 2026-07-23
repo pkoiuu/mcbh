@@ -1,9 +1,6 @@
 // 游戏实例模型 — 代表一个可启动的 Minecraft 版本
 // 实例存储在 .minecraft/versions/&lt;id&gt;/ 目录下
 
-using System;
-using System.Collections.Generic;
-
 namespace Baihe.Host.Models;
 
 /// <summary>

@@ -21,7 +21,7 @@ public class IpcRouter
     /// <summary>
     /// JSON 序列化选项 — 使用 camelCase 命名约定以匹配前端风格
     /// </summary>
-    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// 推送消息回调 — 后端主动向前端推送事件时调用
@@ -36,7 +36,7 @@ public class IpcRouter
     /// <param name="data">事件数据</param>
     public static void PushEvent(string type, object data)
     {
-        var json = JsonSerializer.Serialize(new { type, data }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var json = JsonSerializer.Serialize(new { type, data }, _jsonOptions);
         OnPushMessage?.Invoke(json);
     }
 

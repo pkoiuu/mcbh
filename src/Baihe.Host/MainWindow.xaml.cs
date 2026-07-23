@@ -29,17 +29,11 @@ public partial class MainWindow : Window
     /// <summary>是否正在外部网站导航中（聊天页面等）</summary>
     private bool _isExternalNav = false;
 
-    /// <summary>聊天 WebView 是否可见（用户正在查看聊天页面）</summary>
-    private bool _isChatVisible = false;
-
     /// <summary>微软登录取消令牌</summary>
     private CancellationTokenSource? _msCts;
 
     /// <summary>系统托盘服务</summary>
     private TrayService? _trayService;
-
-    /// <summary>是否允许真正关闭（从托盘菜单退出时为 true）</summary>
-    private bool _allowClose = false;
 
     /// <summary>
     /// 创建主窗口实例
@@ -60,7 +54,7 @@ public partial class MainWindow : Window
     /// </summary>
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!_allowClose && _trayService != null)
+        if (_trayService != null)
         {
             // 首次关闭 → 最小化到托盘
             e.Cancel = true;
@@ -338,14 +332,11 @@ public partial class MainWindow : Window
         _ipcRouter.Register("launch.start", async args =>
         {
             string instanceId = "";
-            bool quickPlay = true;
 
             if (args?.ValueKind == System.Text.Json.JsonValueKind.Object)
             {
                 if (args.Value.TryGetProperty("instanceId", out var idProp))
                     instanceId = idProp.GetString() ?? "";
-                if (args.Value.TryGetProperty("quickPlay", out var qpProp))
-                    quickPlay = qpProp.GetBoolean();
             }
 
             // 检查用户是否已设置账户
@@ -369,7 +360,7 @@ public partial class MainWindow : Window
             }
 
             var settings = await SettingsService.GetAsync();
-            return await LaunchService.Launch(instanceId, account, quickPlay, settings);
+            return await LaunchService.Launch(instanceId, account, settings);
         });
 
         _ipcRouter.Register("launch.status", _ =>
@@ -543,7 +534,6 @@ public partial class MainWindow : Window
             if (string.IsNullOrEmpty(url))
                 throw new ArgumentException("URL 不能为空");
 
-            _isChatVisible = true;
             _isExternalNav = true;
             Dispatcher.Invoke(() =>
             {
@@ -555,7 +545,6 @@ public partial class MainWindow : Window
         // 导航回启动器主页
         _ipcRouter.Register("nav.home", async _ =>
         {
-            _isChatVisible = false;
             _isExternalNav = false;
             Dispatcher.Invoke(() =>
             {
@@ -690,7 +679,6 @@ public partial class MainWindow : Window
             // 返回启动器主页 — 从聊天页面导航回启动器
             if (json == "__nav_home__")
             {
-                _isChatVisible = false;
                 _isExternalNav = false;
                 Dispatcher.Invoke(() =>
                 {

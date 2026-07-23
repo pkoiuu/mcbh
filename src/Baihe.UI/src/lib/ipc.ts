@@ -117,9 +117,6 @@ export async function ipc<T = unknown>(cmd: string, args?: unknown): Promise<T> 
   })
 }
 
-/** ipc 的别名，语义更清晰 */
-export const call = ipc
-
 /**
  * 监听后端推送的事件
  * @param type - 事件类型

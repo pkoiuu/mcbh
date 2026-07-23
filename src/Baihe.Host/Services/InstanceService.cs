@@ -166,13 +166,4 @@ public static class InstanceService
             ?? instances.FirstOrDefault(i => i.IsInstalled)
             ?? instances[0];
     }
-
-    /// <summary>
-    /// 设置当前选中的实例
-    /// </summary>
-    public static Task SetCurrentInstance(string instanceId)
-    {
-        var configPath = Path.Combine(AppContext.BaseDirectory, "current_instance.txt");
-        return File.WriteAllTextAsync(configPath, instanceId);
-    }
 }

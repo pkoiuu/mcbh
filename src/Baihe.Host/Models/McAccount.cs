@@ -2,7 +2,6 @@
 // 参照 PCL2-CE ModProfile.cs，简化为单一模型
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;

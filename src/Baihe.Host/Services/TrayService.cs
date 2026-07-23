@@ -3,7 +3,6 @@
 
 using System;
 using System.Drawing;
-using System.Media;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Application = System.Windows.Application;

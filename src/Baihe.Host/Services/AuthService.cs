@@ -46,7 +46,7 @@ public static class AuthService
         {
             Type = AccountType.Offline,
             Username = username,
-            Uuid = GenerateOfflineUuid(username),
+            Uuid = OfflineAccount.Create(username).Uuid,
             AccessToken = "offline-token",
             IsUserSet = true,
         };
@@ -78,17 +78,5 @@ public static class AuthService
             }
         }
         return account;
-    }
-
-    /// <summary>
-    /// 生成离线玩家 UUID — 基于 "OfflinePlayer:{username}" 的 MD5 (version 3 UUID)
-    /// </summary>
-    private static string GenerateOfflineUuid(string username)
-    {
-        var input = $"OfflinePlayer:{username}";
-        var bytes = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(input));
-        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x30); // version 3
-        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80); // variant
-        return new Guid(bytes).ToString("N");
     }
 }

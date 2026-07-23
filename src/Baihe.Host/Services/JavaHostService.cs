@@ -59,7 +59,7 @@ public static class JavaHostService
                 RedirectStandardOutput = true,
                 CreateNoWindow = true,
             };
-            var proc = Process.Start(psi);
+            using var proc = Process.Start(psi);
             if (proc != null)
             {
                 var output = await proc.StandardOutput.ReadToEndAsync();
@@ -99,7 +99,7 @@ public static class JavaHostService
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
-            var proc = Process.Start(psi);
+            using var proc = Process.Start(psi);
             if (proc != null)
             {
                 var output = proc.StandardError.ReadToEnd();

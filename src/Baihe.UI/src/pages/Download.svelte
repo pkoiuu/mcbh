@@ -120,54 +120,67 @@
     }
   }
 
-  // 监听下载进度事件
-  on('download.progress', (data) => {
-    downloadProgress = data as DownloadProgress
-  })
+  // 注册推送事件监听器 — 在 $effect 中注册，组件卸载时清理（避免内存泄漏）
+  $effect(() => {
+    // 监听下载进度事件
+    const offProgress = on('download.progress', (data) => {
+      downloadProgress = data as DownloadProgress
+    })
 
-  on('download.complete', () => {
-    downloadComplete = true
-    downloadingVersion = ''
-    // 刷新已安装列表
-    loadData()
-    setTimeout(() => {
-      downloadProgress = null
-      downloadComplete = false
-    }, 3000)
-  })
+    const offComplete = on('download.complete', () => {
+      downloadComplete = true
+      downloadingVersion = ''
+      // 刷新已安装列表
+      loadData()
+      setTimeout(() => {
+        downloadProgress = null
+        downloadComplete = false
+      }, 3000)
+    })
 
-  on('download.error', (data) => {
-    downloadError = (data as { error: string }).error
-    downloadingVersion = ''
-  })
+    const offError = on('download.error', (data) => {
+      downloadError = (data as { error: string }).error
+      downloadingVersion = ''
+    })
 
-  // 监听 Fabric 事件
-  on('fabric.progress', (data) => {
-    const d = data as { phase: string; message: string }
-    downloadProgress = {
-      phase: d.phase,
-      currentFile: d.message,
-      completedFiles: 0,
-      totalFiles: 1,
-      downloadedBytes: 0,
-      totalBytes: 0,
-      percent: d.phase === 'downloading' ? 50 : 25,
+    // 监听 Fabric 事件
+    const offFabricProgress = on('fabric.progress', (data) => {
+      const d = data as { phase: string; message: string }
+      downloadProgress = {
+        phase: d.phase,
+        currentFile: d.message,
+        completedFiles: 0,
+        totalFiles: 1,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        percent: d.phase === 'downloading' ? 50 : 25,
+      }
+    })
+
+    const offFabricComplete = on('fabric.complete', () => {
+      downloadComplete = true
+      downloadingVersion = ''
+      loadData()
+      setTimeout(() => {
+        downloadProgress = null
+        downloadComplete = false
+      }, 3000)
+    })
+
+    const offFabricError = on('fabric.error', (data) => {
+      downloadError = (data as { error: string }).error
+      downloadingVersion = ''
+    })
+
+    // 组件卸载时清理所有监听器
+    return () => {
+      offProgress()
+      offComplete()
+      offError()
+      offFabricProgress()
+      offFabricComplete()
+      offFabricError()
     }
-  })
-
-  on('fabric.complete', () => {
-    downloadComplete = true
-    downloadingVersion = ''
-    loadData()
-    setTimeout(() => {
-      downloadProgress = null
-      downloadComplete = false
-    }, 3000)
-  })
-
-  on('fabric.error', (data) => {
-    downloadError = (data as { error: string }).error
-    downloadingVersion = ''
   })
 
   /** 根据分类筛选版本类型 */

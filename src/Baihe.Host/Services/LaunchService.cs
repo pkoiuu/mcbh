@@ -41,9 +41,8 @@ public static class LaunchService
     /// </summary>
     /// <param name="instanceId">实例 ID（版本目录名）</param>
     /// <param name="account">离线账户</param>
-    /// <param name="quickPlay">是否启用 QuickPlay（兼容旧参数，实际使用 settings.QuickPlayEnabled）</param>
     /// <param name="settings">启动器设置，为 null 时自动加载</param>
-    public static async Task<object> Launch(string instanceId, OfflineAccount account, bool quickPlay, LauncherSettings? settings = null)
+    public static async Task<object> Launch(string instanceId, OfflineAccount account, LauncherSettings? settings = null)
     {
         if (_state == LaunchState.Running || _state == LaunchState.Launching)
         {
@@ -267,16 +266,12 @@ public static class LaunchService
     /// </summary>
     /// <param name="instanceId">实例 ID（版本目录名）</param>
     /// <param name="account">统一账户 (离线/微软/第三方)</param>
-    /// <param name="quickPlay">是否启用 QuickPlay（兼容旧参数，实际使用 settings.QuickPlayEnabled）</param>
     /// <param name="settings">启动器设置，为 null 时自动加载</param>
-    public static async Task<object> Launch(string instanceId, McAccount account, bool quickPlay, LauncherSettings? settings = null)
+    public static async Task<object> Launch(string instanceId, McAccount account, LauncherSettings? settings = null)
     {
         // 转换为 OfflineAccount 传给现有逻辑
         var offlineAccount = account.ToOfflineAccount();
-        var result = await Launch(instanceId, offlineAccount, quickPlay, settings);
-
-        // 返回结果中添加账户类型信息
-        return result;
+        return await Launch(instanceId, offlineAccount, settings);
     }
 
     /// <summary>
@@ -599,7 +594,7 @@ public static class LaunchService
                 RedirectStandardOutput = true,
                 CreateNoWindow = true,
             };
-            var proc = Process.Start(psi);
+            using var proc = Process.Start(psi);
             if (proc == null)
                 return null;
 
@@ -1042,25 +1037,6 @@ public static class LaunchService
         }
 
         return args;
-    }
-
-    /// <summary>
-    /// 替换变量占位符 — 将 ${xxx} 格式的占位符替换为实际值
-    /// </summary>
-    private static string ReplaceVariables(string template, string versionId, string gameDir, string assetsDir, OfflineAccount account, string assetsIndex, string versionType)
-    {
-        return template
-            .Replace("${auth_player_name}", account.Username)
-            .Replace("${version_name}", versionId)
-            .Replace("${game_directory}", gameDir)
-            .Replace("${assets_root}", assetsDir)
-            .Replace("${assets_index_name}", assetsIndex)
-            .Replace("${auth_uuid}", account.Uuid)
-            .Replace("${auth_access_token}", account.AccessToken)
-            .Replace("${clientid}", "")            // clientId 为空字符串
-            .Replace("${auth_xuid}", "")            // xuid 为空字符串
-            .Replace("${user_type}", "msa")         // PCL2-CE 统一使用 "msa"
-            .Replace("${version_type}", versionType);
     }
 
     // =========================================================================
