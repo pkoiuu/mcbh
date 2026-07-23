@@ -3,6 +3,7 @@
 
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Baihe.Host.Chrome;
 
@@ -17,6 +18,26 @@ public partial class TitleBar : System.Windows.Controls.UserControl
     public TitleBar()
     {
         InitializeComponent();
+    }
+
+    /// <summary>
+    /// 切换标题栏主题 — 同步背景色和文字颜色
+    /// </summary>
+    /// <param name="isDark">是否为深色主题</param>
+    public void SetTheme(bool isDark)
+    {
+        if (isDark)
+        {
+            this.Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x1A, 0x1A, 0x1C));
+            if (TitleText != null)
+                TitleText.Foreground = new SolidColorBrush(Colors.White);
+        }
+        else
+        {
+            this.Background = new SolidColorBrush(Color.FromArgb(0xCC, 0xF7, 0xF7, 0xFA));
+            if (TitleText != null)
+                TitleText.Foreground = new SolidColorBrush(Color.FromRgb(0x1D, 0x1D, 0x1F));
+        }
     }
 
     /// <summary>

@@ -55,7 +55,7 @@
         </Grid.RowDefinitions>
 
         <!-- 标题栏 — 背景 #1E1E20, 底部 1px 分隔线 #2A2A2C -->
-        <Border Grid.Row="0" Background="#1E1E20" BorderBrush="#2A2A2C" BorderThickness="0,0,0,1">
+        <Border x:Name="TitleBarBorder" Grid.Row="0" Background="#1E1E20" BorderBrush="#2A2A2C" BorderThickness="0,0,0,1">
             <Grid>
                 <!-- 左侧交通灯按钮: 关闭(红) / 最小化(黄) / 最大化(绿) -->
                 <StackPanel Orientation="Horizontal"
@@ -78,7 +78,8 @@
                 </StackPanel>
 
                 <!-- 居中标题 -->
-                <TextBlock HorizontalAlignment="Center"
+                <TextBlock x:Name="TitleText"
+                           HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            Foreground="White"
                            FontSize="13"

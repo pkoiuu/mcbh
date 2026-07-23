@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Baihe.Host.Ipc;
 using Baihe.Host.Models;
@@ -575,6 +576,55 @@ public partial class MainWindow : Window
             });
             return new { success = true };
         });
+
+        // 主题切换 — 前端通知后端同步 WebView2 背景色和标题栏
+        _ipcRouter.Register("theme.set", async (args) =>
+        {
+            try
+            {
+                var themeVal = args.Value.GetProperty("theme").GetString();
+                var isDark = themeVal != "light";
+
+                Dispatcher.Invoke(() =>
+                {
+                    ApplyThemeToWindow(isDark);
+                });
+
+                return new { success = true };
+            }
+            catch
+            {
+                return new { success = false };
+            }
+        });
+    }
+
+    /// <summary>
+    /// 应用主题到窗口 — 同步 WebView2 背景色、标题栏背景色和文字颜色
+    /// </summary>
+    /// <param name="isDark">是否为暗色主题</param>
+    private void ApplyThemeToWindow(bool isDark)
+    {
+        WebView.DefaultBackgroundColor = isDark
+            ? System.Drawing.Color.FromArgb(0x1A, 0x1A, 0x1C)
+            : System.Drawing.Color.FromArgb(0xF7, 0xF7, 0xFA);
+
+        if (isDark)
+        {
+            this.Background = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1C));
+            TitleBarBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x1E, 0x1E, 0x20));
+            TitleBarBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2C));
+            if (TitleText != null)
+                TitleText.Foreground = new SolidColorBrush(Colors.White);
+        }
+        else
+        {
+            this.Background = new SolidColorBrush(Color.FromRgb(0xF7, 0xF7, 0xFA));
+            TitleBarBorder.Background = new SolidColorBrush(Color.FromArgb(0xFF, 0xF7, 0xF7, 0xFA));
+            TitleBarBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0xE5, 0xE5, 0xEA));
+            if (TitleText != null)
+                TitleText.Foreground = new SolidColorBrush(Color.FromRgb(0x1D, 0x1D, 0x1F));
+        }
     }
 
     /// <summary>
@@ -657,6 +707,20 @@ public partial class MainWindow : Window
                     await InjectBackButtonAsync();
                     await InjectChatMonitorScriptAsync();
                 }
+
+                // 同步前端主题到后端 — 读取 localStorage 中的主题设置
+                try
+                {
+                    var themeResult = await coreWebView.ExecuteScriptAsync(
+                        "localStorage.getItem('baihe_theme') || 'dark'");
+                    var isDark = themeResult?.Trim('"') != "light";
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        ApplyThemeToWindow(isDark);
+                    });
+                }
+                catch { }
             };
 
             // 设置 IPC 推送回调 — 后端主动向前端推送事件 (下载进度等)

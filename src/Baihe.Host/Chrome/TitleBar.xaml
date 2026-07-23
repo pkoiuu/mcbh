@@ -10,7 +10,8 @@
              MouseDown="OnTitleBarMouseDown">
     <Grid>
         <!-- 居中标题文字 — 覆盖整个宽度 -->
-        <TextBlock Text="白鹤服务器"
+        <TextBlock x:Name="TitleText"
+                   Text="白鹤服务器"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
                    Foreground="White"

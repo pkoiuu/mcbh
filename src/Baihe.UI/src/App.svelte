@@ -13,6 +13,10 @@
   import Settings from './pages/Settings.svelte'
   import Tools from './pages/Tools.svelte'
   import Login from './pages/Login.svelte'
+  import { theme } from './lib/theme.svelte'
+
+  // 初始化主题（从 localStorage 同步到当前状态与 DOM）
+  theme.init()
 </script>
 
 <WindowShell>

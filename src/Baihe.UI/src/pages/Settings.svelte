@@ -8,6 +8,7 @@
   import { ipc } from '../lib/ipc'
   import { toast } from '../lib/toast.svelte'
   import { router } from '../lib/router.svelte'
+  import { theme } from '../lib/theme.svelte'
   import defaultAvatar from '../assets/default-avatar.png'
 
   // 设置分类
@@ -574,7 +575,20 @@
             <div class="mt-4 divide-y divide-[var(--border)]">
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">主题模式</span>
-                <span class="text-sm text-[var(--muted-foreground)]">暗色（默认）</span>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={theme.current === 'dark'}
+                    aria-label="切换主题模式"
+                    class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
+                    style="background-color: {theme.current === 'dark' ? 'var(--primary)' : 'var(--accent)'};"
+                    onclick={() => theme.toggle()}
+                  >
+                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({theme.current === 'dark' ? '22px' : '2px'});"></span>
+                  </button>
+                  <span class="text-sm text-[var(--muted-foreground)]">{theme.current === 'dark' ? '暗色' : '亮色'}</span>
+                </div>
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">主题色</span>
