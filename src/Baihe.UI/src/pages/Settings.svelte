@@ -290,7 +290,7 @@
       <div class="flex flex-col gap-1">
         {#each categories as cat (cat.key)}
           <a
-            href="#"
+            href="javascript:void(0)"
             class="group flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition-colors {activeCategory === cat.key ? 'bg-[var(--sidebar-accent)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'}"
             onclick={(e) => {
               e.preventDefault()

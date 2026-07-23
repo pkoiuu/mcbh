@@ -366,7 +366,7 @@
     <section>
       <div class="flex items-center justify-between">
         <h2 class="text-[16px] font-semibold text-[var(--foreground)]">最新动态</h2>
-        <a href="#" class="text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={(e) => e.preventDefault()}>查看全部</a>
+        <a href="javascript:void(0)" class="text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={(e) => e.preventDefault()}>查看全部</a>
       </div>
       <div class="mt-3">
         {#each news as item (item.title)}
