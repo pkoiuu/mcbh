@@ -21,8 +21,8 @@ public static class UpdateService
     private const string RepoOwner = "pkoiuu";
     private const string RepoName = "mcbh";
 
-    /// <summary>国内镜像前缀 — 加速 GitHub 下载</summary>
-    private const string MirrorPrefix = "https://gh-proxy.com/";
+    /// <summary>国内镜像前缀 — 加速 GitHub 下载 (格式: https://api.gitproxy.dev/github.com/...)</summary>
+    private const string MirrorPrefix = "https://api.gitproxy.dev/";
 
     static UpdateService()
     {
@@ -83,9 +83,9 @@ public static class UpdateService
                 }
             }
 
-            // 应用国内镜像加速
-            if (downloadUrl.StartsWith("https://github.com", StringComparison.OrdinalIgnoreCase))
-                downloadUrl = MirrorPrefix + downloadUrl;
+            // 应用国内镜像加速 (格式: https://api.gitproxy.dev/github.com/...)
+            if (downloadUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
+                downloadUrl = MirrorPrefix + downloadUrl.Substring("https://".Length);
 
             var hasUpdate = IsNewerVersion(latestVersion, currentVersion);
 
