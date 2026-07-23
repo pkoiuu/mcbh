@@ -552,7 +552,7 @@
                   style="background-color: {autoFullscreen ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { autoFullscreen = !autoFullscreen; saveSettings() }}
                 >
-                  <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({autoFullscreen ? '22px' : '2px'});"></span>
+                  <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({autoFullscreen ? '22px' : '2px'});"></span>
                 </button>
               </div>
               <!-- QuickPlay 自动连接 -->
@@ -567,7 +567,7 @@
                   style="background-color: {quickPlayEnabled ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { quickPlayEnabled = !quickPlayEnabled; saveSettings() }}
                 >
-                  <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({quickPlayEnabled ? '22px' : '2px'});"></span>
+                  <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({quickPlayEnabled ? '22px' : '2px'});"></span>
                 </button>
               </div>
               <!-- 启动后关闭启动器 -->
@@ -582,7 +582,7 @@
                   style="background-color: {closeAfterLaunch ? 'var(--primary)' : 'var(--accent)'};"
                   onclick={() => { closeAfterLaunch = !closeAfterLaunch; saveSettings() }}
                 >
-                  <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({closeAfterLaunch ? '22px' : '2px'});"></span>
+                  <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({closeAfterLaunch ? '22px' : '2px'});"></span>
                 </button>
               </div>
               <!-- 服务器地址 -->
@@ -619,7 +619,7 @@
                     style="background-color: {theme.current === 'dark' ? 'var(--primary)' : 'var(--accent)'};"
                     onclick={() => theme.toggle()}
                   >
-                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({theme.current === 'dark' ? '22px' : '2px'});"></span>
+                    <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150" style="transform: translateX({theme.current === 'dark' ? '22px' : '2px'});"></span>
                   </button>
                   <span class="text-sm text-[var(--muted-foreground)]">{theme.current === 'dark' ? '暗色' : '亮色'}</span>
                 </div>
@@ -674,7 +674,7 @@
                     style="background-color: {chatEnabled ? 'var(--primary)' : 'var(--accent)'};"
                     onclick={toggleChat}
                   >
-                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
+                    <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
                       style="transform: translateX({chatEnabled ? '22px' : '2px'});"></span>
                   </button>
                 </div>

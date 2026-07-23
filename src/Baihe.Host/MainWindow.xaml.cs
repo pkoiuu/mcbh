@@ -176,11 +176,25 @@ public partial class MainWindow : Window
             return Task.FromResult<object>(true);
         });
 
-        // 应用信息命令
+        // 应用信息命令 — 优先读取 FileVersion（Release 构建从 tag 注入），去掉末尾 .0
         _ipcRouter.Register("app.getVersion", _ =>
         {
-            var version = Assembly.GetExecutingAssembly()
-                .GetName().Version?.ToString() ?? "1.0.0";
+            var assembly = Assembly.GetExecutingAssembly();
+            var version = "1.0.0";
+
+            // 优先从 AssemblyFileVersion 读取（Release 构建通过 -p:FileVersion 注入）
+            var fileVer = assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();
+            if (fileVer != null && Version.TryParse(fileVer.Version, out var parsed))
+            {
+                version = parsed.ToString(3); // 只取主.次.修，去掉末尾的 .0
+            }
+            else
+            {
+                var asmVer = assembly.GetName().Version;
+                if (asmVer != null)
+                    version = asmVer.ToString(3);
+            }
+
             return Task.FromResult<object>(version);
         });
 
