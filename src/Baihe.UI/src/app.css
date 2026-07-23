@@ -314,9 +314,8 @@ body {
   transform: scale(0.97);
 }
 
-/* ===== 按钮通用微交互 ===== */
-button:active:not(:disabled),
-a:active {
+/* ===== 按钮通用微交互 — 只对带 .btn-press 类的元素生效 ===== */
+.btn-press:active:not(:disabled) {
   transform: scale(0.97);
 }
 

@@ -8,6 +8,7 @@
   import { ipc, on } from '../lib/ipc'
   import { router } from '../lib/router.svelte'
   import { toast } from '../lib/toast.svelte'
+  import versionIcon from '../assets/version-icon.png'
 
   /** 实例信息 */
   interface GameInstance {
@@ -262,9 +263,7 @@
       {#if isLoading}
         <!-- 加载中状态 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--primary)]">
-            <Icon name="palette" size={28} />
-          </div>
+          <div class="h-16 w-16 shrink-0 animate-pulse overflow-hidden rounded-[12px] bg-[var(--accent)]"></div>
           <div class="min-w-0 flex-1">
             <div class="h-[22px] w-40 animate-pulse rounded bg-[var(--accent)]"></div>
             <div class="mt-2 h-[16px] w-56 animate-pulse rounded bg-[var(--accent)]"></div>
@@ -273,8 +272,8 @@
       {:else if loadError || !instance}
         <!-- 无实例或加载失败 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--muted-foreground)]">
-            <Icon name="box" size={28} />
+          <div class="h-16 w-16 shrink-0 overflow-hidden rounded-[12px] bg-[var(--accent)]">
+            <img src={versionIcon} alt="" class="h-full w-full object-cover" />
           </div>
           <div class="min-w-0 flex-1">
             <h2 class="text-[18px] font-semibold text-[var(--foreground)]">暂无游戏实例</h2>
@@ -286,9 +285,9 @@
       {:else}
         <!-- 正常实例卡片 -->
         <article class="flex items-center gap-5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
-          <!-- 缩略图 -->
-          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-[12px] bg-[var(--accent)] text-[var(--primary)]">
-            <Icon name="palette" size={28} />
+          <!-- 缩略图 — 版本图标 -->
+          <div class="h-16 w-16 shrink-0 overflow-hidden rounded-[12px] bg-[var(--accent)]">
+            <img src={versionIcon} alt="" class="h-full w-full object-cover" />
           </div>
           <!-- 中间: 实例名 + meta -->
           <div class="min-w-0 flex-1">

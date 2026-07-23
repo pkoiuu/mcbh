@@ -41,9 +41,6 @@ public partial class MainWindow : Window
     /// <summary>是否允许真正关闭（从托盘菜单退出时为 true）</summary>
     private bool _allowClose = false;
 
-    /// <summary>后台聊天 WebView2 是否已初始化</summary>
-    private bool _chatWebViewReady = false;
-
     /// <summary>
     /// 创建主窗口实例
     /// </summary>
@@ -56,8 +53,6 @@ public partial class MainWindow : Window
         _trayService = new TrayService(this);
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
-        // 异步初始化后台聊天 WebView2 — 持续监控消息
-        _ = InitializeChatWebViewAsync();
     }
 
     /// <summary>
@@ -79,51 +74,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 初始化后台聊天 WebView2 — 始终加载 chat.hhj520.top，持续监控新消息
-    /// </summary>
-    private async Task InitializeChatWebViewAsync()
-    {
-        try
-        {
-            await ChatWebView.EnsureCoreWebView2Async();
-            var coreWebView = ChatWebView.CoreWebView2;
-
-            // 禁用右键菜单和开发者工具
-            coreWebView.Settings.AreDefaultContextMenusEnabled = false;
-            coreWebView.Settings.AreDevToolsEnabled = false;
-
-            // 导航到聊天页面
-            coreWebView.Navigate("https://chat.hhj520.top");
-
-            // 导航完成后注入消息监控脚本和返回按钮
-            coreWebView.NavigationCompleted += async (_, e) =>
-            {
-                if (!e.IsSuccess) return;
-                await InjectChatMonitorScriptAsync();
-                // 如果聊天页面可见，也注入返回按钮
-                if (_isChatVisible)
-                {
-                    _ = InjectBackButtonAsync();
-                }
-            };
-
-            // 接收后台 WebView 的消息
-            ChatWebView.WebMessageReceived += OnChatMessageReceived;
-
-            _chatWebViewReady = true;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[ChatWebView] 初始化失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 向后台聊天 WebView 注入消息监控脚本
+    /// 向聊天页面注入消息监控脚本 — 检测新消息并通知后端
     /// </summary>
     private async Task InjectChatMonitorScriptAsync()
     {
-        if (ChatWebView.CoreWebView2 == null) return;
+        if (WebView.CoreWebView2 == null) return;
 
         var script = """
             (function() {
@@ -189,43 +144,11 @@ public partial class MainWindow : Window
 
         try
         {
-            await ChatWebView.CoreWebView2.ExecuteScriptAsync(script);
+            await WebView.CoreWebView2.ExecuteScriptAsync(script);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ChatWebView] 注入监控脚本失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 处理聊天 WebView 的消息 — 返回按钮和消息通知
-    /// </summary>
-    private void OnChatMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
-    {
-        var json = e.TryGetWebMessageAsString();
-        if (json == null) return;
-
-        // 返回启动器主页 — 隐藏 ChatWebView
-        if (json == "__nav_home__")
-        {
-            Dispatcher.Invoke(() =>
-            {
-                ChatWebView.Visibility = Visibility.Collapsed;
-                _isChatVisible = false;
-            });
-            return;
-        }
-
-        // 检查是否是聊天消息通知
-        if (json.StartsWith("__chat_notify__:"))
-        {
-            var messageContent = json["__chat_notify__:".Length..];
-            // 当窗口在托盘、未激活、或用户不在聊天页面时，显示通知
-            var shouldNotify = (_trayService is { IsHiddenToTray: true }) || !IsActive || !_isChatVisible;
-            if (shouldNotify)
-            {
-                _trayService?.ShowNotification("白鹤聊天", $"收到新消息: {messageContent}", 5000);
-            }
+            System.Diagnostics.Debug.WriteLine($"[WebView2] 注入监控脚本失败: {ex.Message}");
         }
     }
 
@@ -612,32 +535,34 @@ public partial class MainWindow : Window
             return await ToolService.RepairGame();
         });
 
-        // 切换聊天页面显示/隐藏 — 不导航主 WebView，而是显示/隐藏 ChatWebView
-        _ipcRouter.Register("chat.toggle", async _ =>
+        // 导航到外部网站 — 用于聊天页面
+        _ipcRouter.Register("nav.external", async args =>
         {
-            await Dispatcher.InvokeAsync(() =>
+            var url = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            if (string.IsNullOrEmpty(url))
+                throw new ArgumentException("URL 不能为空");
+
+            _isChatVisible = true;
+            _isExternalNav = true;
+            Dispatcher.Invoke(() =>
             {
-                if (_isChatVisible)
-                {
-                    // 隐藏聊天 — 保持尺寸后台渲染，但禁用鼠标命中测试
-                    ChatWebView.Visibility = Visibility.Hidden;
-                    ChatWebView.IsHitTestVisible = false;
-                    _isChatVisible = false;
-                }
-                else
-                {
-                    // 显示聊天 — 启用鼠标命中测试，覆盖主 WebView
-                    ChatWebView.Visibility = Visibility.Visible;
-                    ChatWebView.IsHitTestVisible = true;
-                    _isChatVisible = true;
-                }
+                WebView.CoreWebView2?.Navigate(url);
             });
-            // 显示时注入返回按钮
-            if (_isChatVisible)
+            return new { success = true };
+        });
+
+        // 导航回启动器主页
+        _ipcRouter.Register("nav.home", async _ =>
+        {
+            _isChatVisible = false;
+            _isExternalNav = false;
+            Dispatcher.Invoke(() =>
             {
-                await InjectBackButtonAsync();
-            }
-            return new { success = true, visible = _isChatVisible };
+                var url = WebViewHost.GetEntryPointUrl();
+                WebView.CoreWebView2?.Navigate(url);
+            });
+            return new { success = true };
         });
     }
 
@@ -698,8 +623,8 @@ public partial class MainWindow : Window
             // 设置虚拟主机名到文件夹映射 — 前端通过 https://baihe.app/ 访问本地资源
             WebViewHost.SetupResourceMapping(coreWebView);
 
-            // 导航完成事件 — 捕获加载失败
-            coreWebView.NavigationCompleted += (_, e) =>
+            // 导航完成事件 — 注入返回按钮和消息监控，或捕获加载失败
+            coreWebView.NavigationCompleted += async (_, e) =>
             {
                 if (!e.IsSuccess)
                 {
@@ -712,6 +637,14 @@ public partial class MainWindow : Window
                             MessageBoxButton.OK,
                             MessageBoxImage.Warning);
                     });
+                    return;
+                }
+
+                // 外部网站导航完成后 — 注入返回按钮和消息监控
+                if (_isExternalNav)
+                {
+                    await InjectBackButtonAsync();
+                    await InjectChatMonitorScriptAsync();
                 }
             };
 
@@ -754,6 +687,31 @@ public partial class MainWindow : Window
             // 获取前端发来的 JSON 消息
             var json = e.TryGetWebMessageAsString();
 
+            // 返回启动器主页 — 从聊天页面导航回启动器
+            if (json == "__nav_home__")
+            {
+                _isChatVisible = false;
+                _isExternalNav = false;
+                Dispatcher.Invoke(() =>
+                {
+                    var url = WebViewHost.GetEntryPointUrl();
+                    WebView.CoreWebView2?.Navigate(url);
+                });
+                return;
+            }
+
+            // 聊天消息通知 — 窗口在托盘或未激活时显示系统通知
+            if (json != null && json.StartsWith("__chat_notify__:"))
+            {
+                var messageContent = json["__chat_notify__:".Length..];
+                var shouldNotify = (_trayService is { IsHiddenToTray: true }) || !IsActive;
+                if (shouldNotify)
+                {
+                    _trayService?.ShowNotification("白鹤聊天", $"收到新消息: {messageContent}", 5000);
+                }
+                return;
+            }
+
             // 路由到 IpcRouter 处理并获取响应
             var response = await _ipcRouter.HandleAsync(json ?? string.Empty);
 
@@ -773,11 +731,11 @@ public partial class MainWindow : Window
     /// <summary>
     /// 向聊天 WebView 注入浮动返回按钮 — 智能判断当前页面决定返回目标
     /// - 在 auth.hhj520.top: 点击返回导航到 chat.hhj520.top
-    /// - 在 chat.hhj520.top: 点击返回隐藏 ChatWebView 回到启动器
+    /// - 在 chat.hhj520.top: 点击返回导航回启动器主页
     /// </summary>
     private async Task InjectBackButtonAsync()
     {
-        if (ChatWebView.CoreWebView2 == null) return;
+        if (WebView.CoreWebView2 == null) return;
 
         var script = """
             (function() {
@@ -864,11 +822,11 @@ public partial class MainWindow : Window
 
         try
         {
-            await ChatWebView.CoreWebView2.ExecuteScriptAsync(script);
+            await WebView.CoreWebView2.ExecuteScriptAsync(script);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ChatWebView] 注入返回按钮失败: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[WebView2] 注入返回按钮失败: {ex.Message}");
         }
     }
 }

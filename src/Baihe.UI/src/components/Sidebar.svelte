@@ -20,22 +20,26 @@
   /** 聊天页面是否激活 */
   let chatActive = $state(false)
 
-  /** 处理导航点击 — 聊天页面通过 IPC 切换 ChatWebView 可见性 */
+  /** 处理导航点击 — 聊天页面通过 IPC 导航 WebView 到外部站点 */
   function handleNav(e: MouseEvent, key: string): void {
     e.preventDefault()
     if (key === 'chat') {
-      // 聊天页面 — 切换 ChatWebView 显示/隐藏（不阻塞 UI）
+      // 聊天页面 — 通过 IPC 导航 WebView 到 chat.hhj520.top
       chatActive = !chatActive
-      ipc('chat.toggle').catch(() => {
-        toast.error('无法打开聊天页面')
-        chatActive = false
-      })
+      if (chatActive) {
+        ipc('nav.external', 'https://chat.hhj520.top').catch(() => {
+          toast.error('无法打开聊天页面')
+          chatActive = false
+        })
+      } else {
+        ipc('nav.home').catch(() => {})
+      }
       return
     }
     // 切换到其他页面时关闭聊天
     if (chatActive) {
       chatActive = false
-      ipc('chat.toggle').catch(() => {})
+      ipc('nav.home').catch(() => {})
     }
     router.navigate(key)
   }
