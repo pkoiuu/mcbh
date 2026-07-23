@@ -104,9 +104,6 @@ Source: "..\dist\.minecraft\config\*"; DestDir: "{app}\.minecraft\config"; Flags
 ; 启动器配置 (launcher_profiles.json)
 Source: "..\dist\.minecraft\launcher_profiles.json"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
 
-; 快捷栏 (hotbar.nbt)
-Source: "..\dist\.minecraft\hotbar.nbt"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
-
 [Icons]
 ; 桌面快捷方式 — 使用 userdesktop 避免 lowest 权限下 commondesktop 的问题
 Name: "{userdesktop}\白鹤服务器启动器"; Filename: "{app}\Baihe.exe"; IconFilename: "{app}\icon.ico"; Comment: "白鹤服务器专用启动器"
