@@ -40,6 +40,12 @@ public static class InstanceService
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), McDirName),
         };
 
+        // 优先选择包含 versions 子目录的 .minecraft（排除空目录误匹配）
+        var withVersions = candidates.FirstOrDefault(p => Directory.Exists(Path.Combine(p, "versions")));
+        if (withVersions != null)
+            return withVersions;
+
+        // 退回到第一个存在的 .minecraft 目录
         return candidates.FirstOrDefault(Directory.Exists) ?? candidates[0];
     }
 
