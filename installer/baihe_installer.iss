@@ -89,7 +89,7 @@ Source: "..\dist\.minecraft\assets\*"; DestDir: "{app}\.minecraft\assets"; Flags
 Source: "..\dist\.minecraft\.fabric\*"; DestDir: "{app}\.minecraft\.fabric"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 ; 预装 Mod (mods/) — 更新到最新版本（用户自添加的 mod 不受影响）
-Source: "..\dist\.minecraft\mods\*"; DestDir: "{app}\.minecraft\mods"; Flags: ignoreversion createallsubdirs
+Source: "..\dist\.minecraft\mods\*"; DestDir: "{app}\.minecraft\mods"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ===== .minecraft 用户数据 — 仅首次安装时写入，升级时保留用户已有配置 =====
 ; 游戏设置 (options.txt) — 渲染距离、按键绑定、音量等
