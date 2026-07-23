@@ -94,11 +94,15 @@ jobs:
       # ===== 5. 发布后端 (自包含 .NET 10 运行时) =====
       - name: Publish Baihe.Host
         run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          Write-Host "Publishing version: $version"
           dotnet publish src/Baihe.Host/Baihe.Host.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=false `
             -p:PublishReadyToRun=true `
             -p:PublishTrimmed=false `
+            -p:AssemblyVersion=$version `
+            -p:FileVersion=$version `
             -o dist\launcher
 
       # ===== 6. 复制附加资源 =====

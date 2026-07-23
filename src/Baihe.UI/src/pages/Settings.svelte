@@ -144,6 +144,10 @@
   let settingsLoaded = $state(false)
   let settingsSaving = $state(false)
 
+  // 更新检查
+  let updateChecking = $state(false)
+  let updateInfo = $state<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string } | null>(null)
+
   // 内存滑块临时值
   let memorySlider = $state(4)
 
@@ -171,6 +175,18 @@
       appVersion = await ipc<string>('app.getVersion')
     } catch {
       appVersion = '1.0.0'
+    }
+  }
+
+  /** 检查更新 — 手动触发查询 GitHub Releases */
+  async function checkForUpdate(): Promise<void> {
+    updateChecking = true
+    try {
+      updateInfo = await ipc<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string }>('update.check')
+    } catch {
+      updateInfo = null
+    } finally {
+      updateChecking = false
     }
   }
 
@@ -626,8 +642,37 @@
             <div class="mt-4 divide-y divide-[var(--border)]">
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">版本</span>
-                <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">v{appVersion}</span>
+                <div class="flex items-center gap-3">
+                  <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">v{appVersion}</span>
+                  <button
+                    type="button"
+                    class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-70 disabled:opacity-50"
+                    onclick={checkForUpdate}
+                    disabled={updateChecking}
+                  >
+                    {updateChecking ? '检查中...' : '检查更新'}
+                  </button>
+                </div>
               </div>
+              {#if updateInfo}
+                <div class="flex items-center justify-between py-3">
+                  <span class="whitespace-nowrap text-sm text-[var(--foreground)]">更新状态</span>
+                  <div class="flex items-center gap-3">
+                    {#if updateInfo.hasUpdate}
+                      <span class="text-sm text-[var(--primary)]">发现新版本 v{updateInfo.latestVersion}</span>
+                      <button
+                        type="button"
+                        class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-70"
+                        onclick={() => ipc('open.url', updateInfo.downloadUrl)}
+                      >
+                        下载 &rarr;
+                      </button>
+                    {:else}
+                      <span class="text-sm text-[var(--muted-foreground)]">已是最新版本</span>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">服务器地址</span>
                 <span class="text-sm text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{serverAddress}:{serverPort}</span>

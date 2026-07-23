@@ -183,6 +183,12 @@ public partial class MainWindow : Window
             return Task.FromResult<object>(version);
         });
 
+        // 检查更新 — 查询 GitHub Releases 最新版本（支持国内镜像下载）
+        _ipcRouter.Register("update.check", async _ =>
+        {
+            return await UpdateService.CheckForUpdateAsync();
+        });
+
         // ===== Stage 2: 启动核心命令 =====
 
         // 版本清单

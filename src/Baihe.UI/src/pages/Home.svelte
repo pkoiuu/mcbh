@@ -53,6 +53,16 @@
     error?: string | null
   }
 
+  /** 更新信息 */
+  interface UpdateInfo {
+    hasUpdate: boolean
+    currentVersion: string
+    latestVersion: string
+    downloadUrl: string
+    releaseUrl: string
+    releaseNotes: string
+  }
+
   // 实例状态
   let instance = $state<GameInstance | null>(null)
   let isLoading = $state(true)
@@ -71,6 +81,10 @@
 
   // 账户状态 — 参照 PCL CE McLaunchPrecheck，启动前必须检查用户档案
   let hasAccount = $state(false)
+
+  // 更新检查
+  let updateInfo = $state<UpdateInfo | null>(null)
+  let updateDismissed = $state(false)
 
   /** 快捷工具列表 */
   const tools = [
@@ -122,6 +136,15 @@
       hasAccount = result.hasAccount
     } catch {
       hasAccount = false
+    }
+  }
+
+  /** 检查更新 — 启动时自动查询 GitHub Releases */
+  async function checkForUpdate(): Promise<void> {
+    try {
+      updateInfo = await ipc<UpdateInfo>('update.check')
+    } catch {
+      // 网络错误静默处理
     }
   }
 
@@ -227,10 +250,37 @@
   loadInstance()
   checkServerStatus()
   checkAccount()
+  checkForUpdate()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
   <div class="flex flex-col gap-8">
+    <!-- 更新通知横幅 -->
+    {#if updateInfo?.hasUpdate && !updateDismissed}
+      <div class="flex items-center gap-3 rounded-[var(--radius)] border border-blue-500/30 bg-blue-500/10 p-4">
+        <Icon name="info" size={20} class="text-blue-400 shrink-0" />
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-[var(--foreground)]">发现新版本 v{updateInfo.latestVersion}</div>
+          <div class="text-[12px] text-[var(--muted-foreground)]">当前版本 v{updateInfo.currentVersion} · 升级不会影响游戏设置和存档</div>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
+          onclick={() => ipc('open.url', updateInfo.downloadUrl)}
+        >
+          下载更新
+        </button>
+        <button
+          type="button"
+          class="shrink-0 text-[var(--muted-foreground)] transition-[opacity] hover:opacity-70"
+          onclick={() => updateDismissed = true}
+          aria-label="关闭更新通知"
+        >
+          <span class="text-lg leading-none">&times;</span>
+        </button>
+      </div>
+    {/if}
+
     <!-- 1. 欢迎标题区 + 服务器状态 -->
     <section class="flex items-end justify-between">
       <div>

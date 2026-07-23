@@ -19,6 +19,11 @@ AppPublisherURL=https://github.com/pkoiuu/mcbh
 AppSupportURL=https://github.com/pkoiuu/mcbh
 AppUpdatesURL=https://github.com/pkoiuu/mcbh/releases
 
+; 唯一标识 — 用于升级检测（同一 AppId 覆盖安装视为升级而非新装）
+AppId={{8F2B7A3C-1D4E-4F5B-9A6C-7E8F9A0B1C2D}
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
+
 ; 版本信息 (用于安装包文件属性)
 VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany=白鹤服务器
@@ -60,8 +65,9 @@ CloseApplications=no
 Name: "chinesesimplified"; MessagesFile: "..\installer_resources\ChineseSimplified.isl"
 
 [Files]
-; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等，排除 WebView2 安装程序和 JRE)
-Source: "..\dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 启动器主程序和所有依赖文件 (包含 wwwroot、runtimes 等)
+; 排除: JRE、WebView2 安装程序、运行时生成的用户配置文件（升级时必须保留）
+Source: "..\dist\launcher\*"; DestDir: "{app}"; Excludes: "jre\*,MicrosoftEdgeWebView2RuntimeInstallerX64.exe,settings.json,account.json,current_instance.txt,*.log,debug-*.txt,cache\*,Baihe.exe.WebView2\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; JRE 21 运行时 (jlink 最小化构建，18 模块)
 Source: "..\dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -69,9 +75,37 @@ Source: "..\dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion rec
 ; WebView2 离线安装程序 (约 2MB，安装时自动检测并安装)
 Source: "..\dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; .minecraft 游戏文件 — 全量打包，包含 Fabric 缓存
-; 排除: 日志、崩溃报告、备份文件、旧服务器列表
-Source: "..\dist\.minecraft\*"; DestDir: "{app}\.minecraft"; Excludes: "*.log,*.bak,Log\*,logs\*,crash-reports\*,servers.dat_old,downloads\*"; Flags: recursesubdirs createallsubdirs ignoreversion
+; ===== .minecraft 核心游戏文件 — 始终更新（升级时覆盖为新版本）=====
+; 版本文件 (versions/) — Minecraft 1.21.3 + Fabric Loader
+Source: "..\dist\.minecraft\versions\*"; DestDir: "{app}\.minecraft\versions"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; 库文件 (libraries/) — 76 个库 + 9 个原生库
+Source: "..\dist\.minecraft\libraries\*"; DestDir: "{app}\.minecraft\libraries"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; 资源文件 (assets/) — 3985 个资源对象
+Source: "..\dist\.minecraft\assets\*"; DestDir: "{app}\.minecraft\assets"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; Fabric 预处理缓存 (.fabric/)
+Source: "..\dist\.minecraft\.fabric\*"; DestDir: "{app}\.minecraft\.fabric"; Flags: recursesubdirs createallsubdirs ignoreversion
+
+; 预装 Mod (mods/) — 更新到最新版本（用户自添加的 mod 不受影响）
+Source: "..\dist\.minecraft\mods\*"; DestDir: "{app}\.minecraft\mods"; Flags: ignoreversion createallsubdirs
+
+; ===== .minecraft 用户数据 — 仅首次安装时写入，升级时保留用户已有配置 =====
+; 游戏设置 (options.txt) — 渲染距离、按键绑定、音量等
+Source: "..\dist\.minecraft\options.txt"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+
+; 服务器列表 (servers.dat)
+Source: "..\dist\.minecraft\servers.dat"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+
+; Mod 配置 (config/) — 各 Mod 的配置文件
+Source: "..\dist\.minecraft\config\*"; DestDir: "{app}\.minecraft\config"; Flags: recursesubdirs createallsubdirs onlyifdoesntexist
+
+; 启动器配置 (launcher_profiles.json)
+Source: "..\dist\.minecraft\launcher_profiles.json"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+
+; 快捷栏 (hotbar.nbt)
+Source: "..\dist\.minecraft\hotbar.nbt"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
 
 [Icons]
 ; 桌面快捷方式 — 使用 userdesktop 避免 lowest 权限下 commondesktop 的问题

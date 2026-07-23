@@ -102,6 +102,7 @@
         <Compile Include="Services\ToolService.cs" />
         <Compile Include="Services\TrayService.cs" />
         <Compile Include="Services\FormatHelper.cs" />
+        <Compile Include="Services\UpdateService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>
