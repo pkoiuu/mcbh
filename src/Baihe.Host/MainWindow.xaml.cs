@@ -597,6 +597,20 @@ public partial class MainWindow : Window
                 return new { success = false };
             }
         });
+
+        // 系统内存信息 — 返回总内存和推荐分配值
+        _ipcRouter.Register("system.memory", async _ =>
+        {
+            var totalMB = SettingsService.GetTotalPhysicalMemoryMB();
+            var recommendedMB = SettingsService.CalculateRecommendedMemory(totalMB);
+            return new
+            {
+                totalMB,
+                totalGB = totalMB / 1024,
+                recommendedMB,
+                recommendedGB = recommendedMB / 1024
+            };
+        });
     }
 
     /// <summary>

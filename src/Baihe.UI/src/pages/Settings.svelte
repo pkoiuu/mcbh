@@ -149,6 +149,17 @@
   let updateChecking = $state(false)
   let updateInfo = $state<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string } | null>(null)
 
+  /** 系统内存信息 */
+  interface SystemMemory {
+    totalMB: number
+    totalGB: number
+    recommendedMB: number
+    recommendedGB: number
+  }
+
+  // 系统内存
+  let systemMemory = $state<SystemMemory | null>(null)
+
   // 内存滑块临时值
   let memorySlider = $state(4)
 
@@ -158,8 +169,18 @@
   let devPasswordError = $state('')
   let chatEnabled = $state(localStorage.getItem('baihe_chat_enabled') === 'true')
 
-  /** 内存选项 (GB) */
-  const memoryOptions = [2, 3, 4, 6, 8, 12, 16]
+  /** 生成内存选项 — 基础选项过滤掉超过系统内存 70% 的值，确保推荐值在选项中 */
+  function generateMemoryOptions(totalGB: number): number[] {
+    const maxGB = Math.floor(totalGB * 0.7)
+    const baseOptions = [2, 3, 4, 6, 8, 12, 16]
+    let options = baseOptions.filter(g => g <= maxGB)
+    // 确保至少有 2GB 和 maxGB
+    if (options.length < 2) options = [2, maxGB]
+    return [...new Set(options)].sort((a, b) => a - b)
+  }
+
+  /** 内存选项 — 根据系统内存动态生成 */
+  let memoryOptions = $derived(systemMemory ? generateMemoryOptions(systemMemory.totalGB) : [2, 3, 4, 6, 8, 12, 16])
 
   /** 加载账户信息 — 处理未设置账户时返回的 null username */
   async function loadAccount(): Promise<void> {
@@ -176,6 +197,18 @@
       appVersion = await ipc<string>('app.getVersion')
     } catch {
       appVersion = '1.0.0'
+    }
+  }
+
+  /** 加载系统内存信息 — 用于内存智能推荐 */
+  async function loadSystemMemory(): Promise<void> {
+    try {
+      systemMemory = await ipc<SystemMemory>('system.memory')
+      // 同步内存滑块位置
+      const gb = Math.round(memoryMB / 1024)
+      memorySlider = memoryOptions.indexOf(gb) >= 0 ? memoryOptions.indexOf(gb) : Math.floor(memoryOptions.length / 2)
+    } catch {
+      systemMemory = null
     }
   }
 
@@ -315,6 +348,7 @@
   loadJavaInfo()
   loadSettings()
   loadAppVersion()
+  loadSystemMemory()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -489,7 +523,7 @@
                     />
                     <span class="w-16 shrink-0 text-right text-sm font-medium text-[var(--foreground)]" style="font-family: var(--font-mono);">{Math.round(memoryMB / 1024)} GB</span>
                   </div>
-                  <span class="text-xs text-[var(--muted-foreground)]">建议分配 2-4 GB{settingsSaving ? ' · 保存中...' : ''}</span>
+                  <span class="text-xs text-[var(--muted-foreground)]">{systemMemory ? `检测到 ${systemMemory.totalGB}GB 内存 · 推荐 ${systemMemory.recommendedGB}GB` : '建议分配 2-4 GB'}{settingsSaving ? ' · 保存中...' : ''}</span>
                 </div>
               </div>
               <!-- 游戏窗口尺寸 -->

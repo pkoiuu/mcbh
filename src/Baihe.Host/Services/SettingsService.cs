@@ -3,6 +3,7 @@
 
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -55,6 +56,61 @@ public static class SettingsService
     /// <summary>当前设置 (内存缓存)</summary>
     private static LauncherSettings? _cached;
 
+    // ===== 系统内存检测 (P/Invoke: GlobalMemoryStatusEx) =====
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+
+    /// <summary>
+    /// 获取系统总物理内存 (MB)
+    /// </summary>
+    public static int GetTotalPhysicalMemoryMB()
+    {
+        try
+        {
+            var memStatus = new MEMORYSTATUSEX
+            {
+                dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>()
+            };
+            if (GlobalMemoryStatusEx(ref memStatus))
+            {
+                return (int)(memStatus.ullTotalPhys / (1024UL * 1024UL));
+            }
+            return 8192; // 检测失败时回退到 8GB
+        }
+        catch
+        {
+            return 8192; // 检测失败时回退到 8GB
+        }
+    }
+
+    /// <summary>
+    /// 根据系统总内存计算推荐分配给 Minecraft 的内存 (MB)
+    /// 算法: max(2GB, min(总内存×50%, 总内存-4GB, 16GB))
+    /// </summary>
+    public static int CalculateRecommendedMemory(int totalMB)
+    {
+        var half = (int)(totalMB * 0.5);
+        var reserved = totalMB - 4096;
+        var recommended = Math.Min(half, Math.Min(reserved, 16384));
+        return Math.Max(recommended, 2048);
+    }
+
     /// <summary>
     /// 加载设置 — 优先使用缓存，不存在则创建默认设置
     /// </summary>
@@ -72,7 +128,10 @@ public static class SettingsService
             }
             else
             {
-                _cached = new LauncherSettings();
+                _cached = new LauncherSettings
+                {
+                    MemoryMB = CalculateRecommendedMemory(GetTotalPhysicalMemoryMB())
+                };
                 SaveAsync(_cached).Wait();
             }
         }
