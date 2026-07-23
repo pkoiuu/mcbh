@@ -8,6 +8,7 @@
   import { router, navItems } from '../lib/router.svelte'
   import { ipc } from '../lib/ipc'
   import { toast } from '../lib/toast.svelte'
+  import defaultAvatar from '../assets/default-avatar.png'
   import type { Snippet } from 'svelte'
 
   interface Props {
@@ -16,17 +17,25 @@
 
   let { children }: Props = $props()
 
+  /** 聊天页面是否激活 */
+  let chatActive = $state(false)
+
   /** 处理导航点击 — 聊天页面通过 IPC 切换 ChatWebView 可见性 */
-  async function handleNav(e: MouseEvent, key: string): Promise<void> {
+  function handleNav(e: MouseEvent, key: string): void {
     e.preventDefault()
     if (key === 'chat') {
-      // 聊天页面 — 切换 ChatWebView 显示/隐藏
-      try {
-        await ipc('chat.toggle')
-      } catch {
+      // 聊天页面 — 切换 ChatWebView 显示/隐藏（不阻塞 UI）
+      chatActive = !chatActive
+      ipc('chat.toggle').catch(() => {
         toast.error('无法打开聊天页面')
-      }
+        chatActive = false
+      })
       return
+    }
+    // 切换到其他页面时关闭聊天
+    if (chatActive) {
+      chatActive = false
+      ipc('chat.toggle').catch(() => {})
     }
     router.navigate(key)
   }
@@ -53,7 +62,7 @@
     }
   }
 
-  /** 加载头像 — 从 localStorage 读取 */
+  /** 加载头像 — 从 localStorage 读取，无则使用默认头像 */
   function loadAvatar(): void {
     try {
       avatarData = localStorage.getItem('baihe_avatar')
@@ -83,9 +92,7 @@
       {#if avatarData}
         <img src={avatarData} alt="头像" class="h-full w-full object-cover" />
       {:else}
-        <div class="flex h-full w-full items-center justify-center text-[var(--icon-muted)]">
-          <Icon name="user" size={18} />
-        </div>
+        <img src={defaultAvatar} alt="默认头像" class="h-full w-full object-cover" />
       {/if}
     </div>
     <div class="min-w-0 flex-1">
@@ -102,11 +109,11 @@
     {#each navItems as item (item.key)}
       <a
       href="#"
-      class="group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
-      data-active={router.current === item.key}
+      class="nav-item group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-all duration-200 hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
+      data-active={item.key === 'chat' ? chatActive : router.current === item.key}
       onclick={(e) => handleNav(e, item.key)}
     >
-        <span class="flex items-center text-[var(--icon-muted)] group-data-[active=true]:text-[var(--primary)]">
+        <span class="flex items-center text-[var(--icon-muted)] transition-colors duration-200 group-data-[active=true]:text-[var(--primary)]">
           <Icon name={item.icon} size={18} />
         </span>
         <span class="truncate">{item.label}</span>

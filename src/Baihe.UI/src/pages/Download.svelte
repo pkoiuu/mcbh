@@ -6,6 +6,7 @@
 <script lang="ts">
   import Icon from '../lib/Icon.svelte'
   import { ipc, on } from '../lib/ipc'
+  import versionIcon from '../assets/version-icon.png'
 
   /** Mojang 版本条目 */
   interface VersionEntry {
@@ -372,13 +373,15 @@
       </div>
     {:else}
       {#each filteredVersions as ver (ver.id)}
-        <article class="relative flex items-center justify-between gap-3 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]">
+        <article class="relative flex items-center justify-between gap-3 rounded-[0.9rem] border border-[var(--border)] bg-[var(--card)] p-5 shadow-[var(--shadow-sm)] transition-all duration-200 hover:shadow-[var(--shadow-md)] hover:-translate-y-0.5">
           {#if installedIds.has(ver.id) || installedIds.has(`${ver.id}-fabric`)}
             <div class="absolute right-3 top-3 flex items-center gap-1 text-[var(--success)]">
               <Icon name="check-circle" size={14} />
               <span class="whitespace-nowrap text-[11px] font-medium">已安装</span>
             </div>
           {/if}
+          <!-- 版本图标 -->
+          <img src={versionIcon} alt="" class="h-10 w-10 shrink-0 rounded-[8px] object-cover" />
           <div class="min-w-0 flex-1">
             <div class="truncate text-[18px] font-semibold text-[var(--foreground)]" style="font-family: var(--font-mono);">{ver.id}</div>
             <div class="mt-1.5 flex items-center gap-2">

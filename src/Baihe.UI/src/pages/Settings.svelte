@@ -8,6 +8,7 @@
   import { ipc } from '../lib/ipc'
   import { toast } from '../lib/toast.svelte'
   import { router } from '../lib/router.svelte'
+  import defaultAvatar from '../assets/default-avatar.png'
 
   // 设置分类
   type SettingsCategory = 'account' | 'game' | 'appearance' | 'about'
@@ -327,9 +328,7 @@
                     {#if avatarData}
                       <img src={avatarData} alt="头像" class="h-full w-full object-cover" />
                     {:else}
-                      <div class="flex h-full w-full items-center justify-center text-[var(--muted-foreground)] transition-colors group-hover:text-[var(--primary)]">
-                        <Icon name="user" size={22} />
-                      </div>
+                      <img src={defaultAvatar} alt="默认头像" class="h-full w-full object-cover" />
                     {/if}
                     <!-- 悬停遮罩 -->
                     <div class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">

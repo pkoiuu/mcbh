@@ -17,17 +17,21 @@
 
 <WindowShell>
   <Sidebar>
-    {#if router.current === 'home'}
-      <Home />
-    {:else if router.current === 'download'}
-      <Download />
-    {:else if router.current === 'settings'}
-      <Settings />
-    {:else if router.current === 'tools'}
-      <Tools />
-    {:else if router.current === 'login'}
-      <Login />
-    {/if}
+    {#key router.current}
+      <div class="page-enter">
+        {#if router.current === 'home'}
+          <Home />
+        {:else if router.current === 'download'}
+          <Download />
+        {:else if router.current === 'settings'}
+          <Settings />
+        {:else if router.current === 'tools'}
+          <Tools />
+        {:else if router.current === 'login'}
+          <Login />
+        {/if}
+      </div>
+    {/key}
   </Sidebar>
 </WindowShell>
 
