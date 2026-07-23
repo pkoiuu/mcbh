@@ -285,7 +285,7 @@ public static class MicrosoftAuthService
             TokenType = "JWT",
         };
 
-        var json = JsonSerializer.Serialize(requestBody, _jsonOptionsCamel);
+        var json = JsonSerializer.Serialize(requestBody, _jsonOptionsRaw);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, XboxAuthUrl)
@@ -336,7 +336,7 @@ public static class MicrosoftAuthService
             TokenType = "JWT",
         };
 
-        var json = JsonSerializer.Serialize(requestBody, _jsonOptionsCamel);
+        var json = JsonSerializer.Serialize(requestBody, _jsonOptionsRaw);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, XstsAuthUrl)

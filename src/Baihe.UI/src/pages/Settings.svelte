@@ -11,7 +11,7 @@
   import defaultAvatar from '../assets/default-avatar.png'
 
   // 设置分类
-  type SettingsCategory = 'account' | 'game' | 'appearance' | 'about'
+  type SettingsCategory = 'account' | 'game' | 'appearance' | 'about' | 'developer'
   let activeCategory = $state<SettingsCategory>('account')
 
   const categories: { key: SettingsCategory; label: string; icon: string }[] = [
@@ -19,6 +19,7 @@
     { key: 'game', label: '游戏', icon: 'box' },
     { key: 'appearance', label: '外观', icon: 'palette' },
     { key: 'about', label: '关于', icon: 'info' },
+    { key: 'developer', label: '开发者', icon: 'grip' },
   ]
 
   /** 账户信息 */
@@ -146,6 +147,12 @@
   // 内存滑块临时值
   let memorySlider = $state(4)
 
+  // 开发者设置状态
+  let devPasswordInput = $state('')
+  let devUnlocked = $state(false)
+  let devPasswordError = $state('')
+  let chatEnabled = $state(localStorage.getItem('baihe_chat_enabled') === 'true')
+
   /** 内存选项 (GB) */
   const memoryOptions = [2, 3, 4, 6, 8, 12, 16]
 
@@ -267,6 +274,22 @@
     editingName = account?.username ?? 'Player'
     isEditingName = true
     nameError = ''
+  }
+
+  /** 验证开发者密码 */
+  function unlockDev(): void {
+    if (devPasswordInput === '111125hj') {
+      devUnlocked = true
+      devPasswordError = ''
+    } else {
+      devPasswordError = '密码错误'
+    }
+  }
+
+  /** 切换聊天功能开关 */
+  function toggleChat(): void {
+    chatEnabled = !chatEnabled
+    localStorage.setItem('baihe_chat_enabled', String(chatEnabled))
   }
 
   // 组件挂载时加载数据
@@ -546,6 +569,55 @@
             </div>
           </section>
 
+        {:else if activeCategory === 'developer'}
+          <!-- 开发者设置卡片 -->
+          <section class="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
+            <h2 class="text-base font-semibold text-[var(--foreground)]">开发者设置</h2>
+            <p class="mt-1 text-[13px] text-[var(--muted-foreground)]">高级功能与实验性选项</p>
+            {#if !devUnlocked}
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-[var(--foreground)]">请输入开发者密码</label>
+                <div class="mt-2 flex gap-2">
+                  <input
+                    type="password"
+                    bind:value={devPasswordInput}
+                    onkeydown={(e) => { if (e.key === 'Enter') unlockDev() }}
+                    class="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                    placeholder="输入密码"
+                  />
+                  <button
+                    type="button"
+                    class="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition-[filter] hover:brightness-[0.96]"
+                    onclick={unlockDev}
+                  >确认</button>
+                </div>
+                {#if devPasswordError}
+                  <p class="mt-2 text-xs text-[var(--destructive)]">{devPasswordError}</p>
+                {/if}
+              </div>
+            {:else}
+              <div class="mt-4 divide-y divide-[var(--border)]">
+                <div class="flex items-center justify-between py-3">
+                  <div>
+                    <span class="text-sm font-medium text-[var(--foreground)]">聊天功能</span>
+                    <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">在工具页显示聊天入口（测试功能）</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={chatEnabled}
+                    class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150"
+                    style="background-color: {chatEnabled ? 'var(--primary)' : 'var(--accent)'};"
+                    onclick={toggleChat}
+                  >
+                    <span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
+                      style="transform: translateX({chatEnabled ? '22px' : '2px'});"></span>
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </section>
+
         {:else if activeCategory === 'about'}
           <!-- 关于卡片 -->
           <section class="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-6 shadow-[var(--shadow-sm)]">
@@ -563,6 +635,10 @@
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">开源许可</span>
                 <span class="text-sm text-[var(--muted-foreground)]">Apache 2.0</span>
+              </div>
+              <div class="flex items-center justify-between py-3">
+                <span class="whitespace-nowrap text-sm text-[var(--foreground)]">开源地址</span>
+                <a href="javascript:void(0)" class="text-sm text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={() => ipc('open.url', 'https://github.com/pkoiuu/mcbh')}>GitHub 仓库 →</a>
               </div>
             </div>
           </section>

@@ -54,7 +54,7 @@
     details: RepairDetail[]
   }
 
-  type TabId = 'mods' | 'saves' | 'screenshots' | 'repair'
+  type TabId = 'mods' | 'saves' | 'screenshots' | 'repair' | 'chat'
 
   // ===== Tab 配置 =====
 
@@ -63,7 +63,11 @@
     { id: 'saves', name: '存档备份', icon: 'box' },
     { id: 'screenshots', name: '截图管理', icon: 'grip' },
     { id: 'repair', name: '游戏修复', icon: 'info' },
+    { id: 'chat', name: '聊天', icon: 'message-circle' },
   ]
+
+  /** 聊天 Tab 是否可见 — 由设置页开发者选项控制 */
+  let chatEnabled = $state(localStorage.getItem('baihe_chat_enabled') === 'true')
 
   // ===== 状态 =====
 
@@ -481,7 +485,7 @@
     <!-- 2. Tab 切换栏 -->
     <section>
       <div class="inline-flex gap-1 rounded-[1rem] border border-[var(--border)] bg-[var(--card)] p-1">
-        {#each tabs as tab (tab.id)}
+        {#each tabs.filter(t => t.id !== 'chat' || chatEnabled) as tab (tab.id)}
           <button
             type="button"
             class="inline-flex items-center gap-2 rounded-[0.75rem] px-4 py-2 text-[13px] font-medium transition-[background-color,color] {activeTab === tab.id ? 'bg-[var(--accent)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}"
@@ -911,6 +915,29 @@
               <p class="mt-1 text-[13px] text-[var(--muted-foreground)]">点击上方"开始检查"按钮扫描游戏文件</p>
             </div>
           {/if}
+        </div>
+
+      {:else if activeTab === 'chat'}
+        <!-- ===== 聊天 Tab ===== -->
+        <div class="flex flex-col items-center justify-center gap-4 py-20">
+          <div class="text-center">
+            <p class="text-sm text-[var(--muted-foreground)]">点击下方按钮打开聊天页面</p>
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">目前还不完善，属于测试功能</p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-[0.5rem] bg-[var(--primary)] px-6 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] transition-[filter] hover:brightness-[0.96]"
+            onclick={() => {
+              try {
+                ipc('nav.external', 'https://chat.hhj520.top')
+              } catch {
+                toast.error('无法打开聊天页面')
+              }
+            }}
+          >
+            <Icon name="message-circle" size={16} />
+            打开聊天
+          </button>
         </div>
       {/if}
     </section>

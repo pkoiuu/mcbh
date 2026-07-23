@@ -7,7 +7,6 @@
   import Icon from '../lib/Icon.svelte'
   import { router, navItems } from '../lib/router.svelte'
   import { ipc } from '../lib/ipc'
-  import { toast } from '../lib/toast.svelte'
   import defaultAvatar from '../assets/default-avatar.png'
   import type { Snippet } from 'svelte'
 
@@ -17,30 +16,9 @@
 
   let { children }: Props = $props()
 
-  /** 聊天页面是否激活 */
-  let chatActive = $state(false)
-
-  /** 处理导航点击 — 聊天页面通过 IPC 导航 WebView 到外部站点 */
+  /** 处理导航点击 */
   function handleNav(e: MouseEvent, key: string): void {
     e.preventDefault()
-    if (key === 'chat') {
-      // 聊天页面 — 通过 IPC 导航 WebView 到 chat.hhj520.top
-      chatActive = !chatActive
-      if (chatActive) {
-        ipc('nav.external', 'https://chat.hhj520.top').catch(() => {
-          toast.error('无法打开聊天页面')
-          chatActive = false
-        })
-      } else {
-        ipc('nav.home').catch(() => {})
-      }
-      return
-    }
-    // 切换到其他页面时关闭聊天
-    if (chatActive) {
-      chatActive = false
-      ipc('nav.home').catch(() => {})
-    }
     router.navigate(key)
   }
 
@@ -114,7 +92,7 @@
       <a
       href="javascript:void(0)"
       class="nav-item group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-all duration-200 hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
-      data-active={item.key === 'chat' ? chatActive : router.current === item.key}
+      data-active={router.current === item.key}
       onclick={(e) => handleNav(e, item.key)}
     >
         <span class="flex items-center text-[var(--icon-muted)] transition-colors duration-200 group-data-[active=true]:text-[var(--primary)]">

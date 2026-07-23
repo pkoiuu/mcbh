@@ -526,6 +526,22 @@ public partial class MainWindow : Window
             return await ToolService.RepairGame();
         });
 
+        // 在系统默认浏览器中打开 URL
+        _ipcRouter.Register("open.url", async args =>
+        {
+            var url = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString()! : "";
+            if (string.IsNullOrEmpty(url))
+                throw new ArgumentException("URL 不能为空");
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+            return new { success = true };
+        });
+
         // 导航到外部网站 — 用于聊天页面
         _ipcRouter.Register("nav.external", async args =>
         {
