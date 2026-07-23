@@ -68,3 +68,23 @@ jobs:
             src/Baihe.Host/bin/Release/net10.0-windows/
             src/Baihe.Core/bin/Release/net10.0-windows/
           retention-days: 7
+
+      - name: Package build for release
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "src/Baihe.Host/bin/Release/net10.0-windows/win-x64/*" `
+            -DestinationPath "baihe-build.zip" -Force
+
+      - name: Update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 最新构建
+          body: |
+            自动构建 - ${{ github.event.head_commit.message }}
+            构建时间: ${{ github.event.head_commit.timestamp }}
+            提交: ${{ github.sha }}
+          prerelease: true
+          files: baihe-build.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
