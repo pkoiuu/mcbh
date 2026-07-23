@@ -48,6 +48,27 @@ public partial class MainWindow : Window
         _trayService = new TrayService(this);
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
+        // 遥测上报 — 启动时如果已有账户，上报环境信息
+        _ = ReportOnStartupAsync();
+    }
+
+    /// <summary>
+    /// 启动时遥测上报 — 如果已有保存的账户，上报环境信息
+    /// </summary>
+    private static async Task ReportOnStartupAsync()
+    {
+        try
+        {
+            var account = await AuthService.GetCurrentAccount();
+            if (account != null && account.IsUserSet)
+            {
+                await TelemetryService.ReportAsync(account.Uuid, account.Username);
+            }
+        }
+        catch
+        {
+            // 静默处理
+        }
     }
 
     /// <summary>
@@ -252,6 +273,8 @@ public partial class MainWindow : Window
             var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "Player";
             var account = await AuthService.SetOfflineAccount(username);
+            // 遥测上报 — 异步静默，不阻塞登录响应
+            _ = TelemetryService.ReportAsync(account.Uuid, account.Username);
             return new { username = account.Username, uuid = account.Uuid, isUserSet = account.IsUserSet };
         });
 
@@ -261,6 +284,8 @@ public partial class MainWindow : Window
             var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "Player";
             var account = await AuthService.SetOfflineAccount(username);
+            // 遥测上报 — 异步静默
+            _ = TelemetryService.ReportAsync(account.Uuid, account.Username);
             return new { username = account.Username, isUserSet = account.IsUserSet };
         });
 
@@ -381,6 +406,10 @@ public partial class MainWindow : Window
             }
 
             var settings = await SettingsService.GetAsync();
+
+            // 遥测上报 — 游戏启动前上报最新模组列表
+            _ = TelemetryService.ReportAsync(account.Uuid, account.Username);
+
             return await LaunchService.Launch(instanceId, account, settings);
         });
 
