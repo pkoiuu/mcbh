@@ -36,6 +36,9 @@ WebView2FixedRuntime/
 *.exe
 !src/Baihe.Host/Assets/*.ico
 
+# ===== CI 下载产物（不提交，通过 Release 下载） =====
+artifacts/
+
 # ===== 临时文件 =====
 *.tmp
 *.bak
