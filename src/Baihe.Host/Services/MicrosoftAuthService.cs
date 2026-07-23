@@ -23,8 +23,8 @@ public static class MicrosoftAuthService
     /// <summary>Azure AD v2.0 Client ID — 使用 Prism Launcher 公开注册的应用 ID，支持设备码流程</summary>
     private const string ClientId = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb";
 
-    /// <summary>OAuth Scope — XboxLive.SignIn 用于 Xbox Live 认证，offline_access 是标准 OIDC scope 用于获取 refresh_token</summary>
-    private const string OAuthScope = "XboxLive.SignIn offline_access";
+    /// <summary>OAuth Scope — XboxLive.SignIn 用于 Xbox Live 认证，offline_access 用于获取 refresh_token，openid email 用于获取用户邮箱</summary>
+    private const string OAuthScope = "XboxLive.SignIn offline_access openid email";
 
     /// <summary>设备码端点</summary>
     private const string DeviceCodeUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
@@ -83,7 +83,7 @@ public static class MicrosoftAuthService
             var oauthToken = await PollForTokenAsync(deviceCode, cancellationToken);
 
             // Step 3-6: 用 access_token 完成 Xbox → XSTS → Minecraft → Profile
-            return await AuthenticateWithAccessTokenAsync(oauthToken.AccessToken, oauthToken.RefreshToken ?? string.Empty);
+            return await AuthenticateWithAccessTokenAsync(oauthToken.AccessToken, oauthToken.RefreshToken ?? string.Empty, oauthToken.IdToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -125,7 +125,7 @@ public static class MicrosoftAuthService
             var oauthToken = await RefreshOAuthTokenAsync(refreshToken);
 
             // Step 3-6: 用新 access_token 完成 Xbox → XSTS → Minecraft → Profile
-            return await AuthenticateWithAccessTokenAsync(oauthToken.AccessToken, oauthToken.RefreshToken ?? refreshToken);
+            return await AuthenticateWithAccessTokenAsync(oauthToken.AccessToken, oauthToken.RefreshToken ?? refreshToken, oauthToken.IdToken);
         }
         catch
         {
@@ -495,8 +495,9 @@ public static class MicrosoftAuthService
     /// </summary>
     /// <param name="oauthAccessToken">OAuth access_token</param>
     /// <param name="refreshToken">OAuth refresh_token (用于后续刷新)</param>
+    /// <param name="idToken">OAuth id_token (JWT，用于提取用户邮箱)</param>
     /// <returns>认证完成后的 McAccount</returns>
-    private static async Task<McAccount> AuthenticateWithAccessTokenAsync(string oauthAccessToken, string refreshToken)
+    private static async Task<McAccount> AuthenticateWithAccessTokenAsync(string oauthAccessToken, string refreshToken, string? idToken = null)
     {
         // Step 3: Xbox Live 认证
         var (xblToken, xblUhs) = await AuthenticateXboxLiveAsync(oauthAccessToken);
@@ -510,6 +511,9 @@ public static class MicrosoftAuthService
         // Step 6: 获取 Profile
         var (uuid, username) = await GetMinecraftProfileAsync(mcToken);
 
+        // 从 id_token 提取邮箱
+        var email = ExtractEmailFromIdToken(idToken);
+
         // 计算 ExpiresAt — Unix 毫秒时间戳
         var expiresAt = DateTimeOffset.UtcNow.AddSeconds(mcExpiresIn).ToUnixTimeMilliseconds();
 
@@ -521,8 +525,49 @@ public static class MicrosoftAuthService
             AccessToken = mcToken,
             RefreshToken = refreshToken,
             ExpiresAt = expiresAt,
+            Email = email,
             IsUserSet = true,
         };
+    }
+
+    /// <summary>
+    /// 从 OAuth id_token (JWT) 中提取用户邮箱
+    /// JWT 格式: header.payload.signature，payload 为 Base64Url 编码的 JSON
+    /// </summary>
+    /// <param name="idToken">id_token 字符串</param>
+    /// <returns>邮箱地址；解析失败时返回 null</returns>
+    private static string? ExtractEmailFromIdToken(string? idToken)
+    {
+        if (string.IsNullOrEmpty(idToken))
+            return null;
+
+        try
+        {
+            var parts = idToken.Split('.');
+            if (parts.Length < 2)
+                return null;
+
+            // Base64Url 解码 payload（补齐 padding）
+            var payload = parts[1];
+            payload = payload.Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+
+            var jsonBytes = Convert.FromBase64String(payload);
+            using var doc = JsonDocument.Parse(jsonBytes);
+
+            if (doc.RootElement.TryGetProperty("email", out var emailElement))
+                return emailElement.GetString();
+
+            // 某些情况下邮箱在 preferred_username 字段
+            if (doc.RootElement.TryGetProperty("preferred_username", out var prefElement))
+                return prefElement.GetString();
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // =========================================================================
@@ -607,6 +652,9 @@ public static class MicrosoftAuthService
 
         [JsonPropertyName("scope")]
         public string? Scope { get; set; }
+
+        [JsonPropertyName("id_token")]
+        public string? IdToken { get; set; }
     }
 
     /// <summary>Xbox 认证响应 (Step 3 & 4) — PascalCase 命名</summary>

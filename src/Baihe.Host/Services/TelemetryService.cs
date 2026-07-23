@@ -1,6 +1,6 @@
 // 遥测服务 — 收集客户端环境数据并上报到自建 API
 // 遵循 telemetry-api-guidelines.md 规范：异步、静默、单例 HttpClient
-// 上报时机：启动器启动、用户登录、游戏启动前
+// 上报策略：每会话仅首次上报，首次上报前请求服务端策略决定是否允许
 
 using System;
 using System.Collections.Generic;
@@ -35,16 +35,46 @@ public static class TelemetryService
     /// <summary>JSON 序列化选项（驼峰命名）</summary>
     private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>会话级标志 — 每会话仅首次上报，首次后不再重复</summary>
+    private static bool _hasReportedThisSession = false;
+
+    /// <summary>服务端策略缓存（null 表示未获取到，按 fail-open 处理）</summary>
+    private static TelemetryPolicy? _cachedPolicy;
+
+    /// <summary>是否已尝试获取策略（避免同一会话反复请求）</summary>
+    private static bool _policyFetched = false;
+
     /// <summary>
-    /// 上报玩家数据 — 收集环境信息并发送到 API
-    /// 失败时静默处理，不影响用户体验
+    /// 上报玩家数据 — 每会话仅首次上报。
+    /// 首次上报前请求服务端策略，策略明确禁止时跳过。
+    /// 策略不可达时按 fail-open 处理（允许上报）。
+    /// 失败时静默处理，不影响用户体验。
     /// </summary>
     /// <param name="uuid">玩家 UUID</param>
     /// <param name="username">玩家用户名</param>
-    public static async Task ReportAsync(string uuid, string username)
+    /// <param name="email">用户邮箱（微软正版和第三方验证登录时有值，离线模式为 null）</param>
+    public static async Task ReportAsync(string uuid, string username, string? email = null)
     {
         if (string.IsNullOrEmpty(uuid) || string.IsNullOrEmpty(username))
             return;
+
+        // 会话级去重 — 每会话仅首次上报
+        if (_hasReportedThisSession)
+            return;
+
+        // 首次上报前获取服务端策略
+        if (!_policyFetched)
+        {
+            _cachedPolicy = await GetTelemetryPolicyAsync();
+            _policyFetched = true;
+        }
+
+        // 策略明确禁止上报时跳过（null = 策略不可达，按 fail-open 允许）
+        if (_cachedPolicy is { Enabled: false })
+        {
+            _hasReportedThisSession = true;
+            return;
+        }
 
         try
         {
@@ -54,6 +84,7 @@ public static class TelemetryService
             {
                 uuid,
                 username,
+                email = email ?? string.Empty,
                 launcherVersion = GetLauncherVersion(),
                 os = GetOsInfo(),
                 language = CultureInfo.CurrentUICulture.Name,
@@ -66,10 +97,43 @@ public static class TelemetryService
             content.Headers.Add("X-Api-Key", ApiKey);
 
             await _httpClient.PostAsync($"{ServerUrl}/api/track/report", content);
+            _hasReportedThisSession = true;
         }
-        catch
+        catch (Exception ex)
         {
-            // 静默处理，遥测不应影响用户体验
+            // 记录失败原因便于排查，但不影响用户体验
+            System.Diagnostics.Debug.WriteLine($"[Telemetry] 上报失败: {ex.Message}");
+            // 即使失败也标记为已尝试，避免同一会话反复重试
+            _hasReportedThisSession = true;
+        }
+    }
+
+    /// <summary>
+    /// 获取服务端遥测策略 — 动态控制是否允许上报
+    /// 请求 GET /api/track/policy，返回 { "enabled": true/false }
+    /// </summary>
+    /// <returns>策略对象；不可达时返回 null（fail-open）</returns>
+    private static async Task<TelemetryPolicy?> GetTelemetryPolicyAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{ServerUrl}/api/track/policy");
+            request.Headers.Add("X-Api-Key", ApiKey);
+
+            using var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Telemetry] 策略接口返回 HTTP {response.StatusCode}");
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<TelemetryPolicy>(json, _jsonOptions);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Telemetry] 获取策略失败: {ex.Message}");
+            return null;
         }
     }
 
@@ -101,7 +165,6 @@ public static class TelemetryService
     {
         try
         {
-            // 使用 RuntimeInformation 获取更详细的 OS 信息
             var osDesc = RuntimeInformation.OSDescription;
             var arch = RuntimeInformation.OSArchitecture.ToString();
             return $"{osDesc} ({arch})";
@@ -131,13 +194,11 @@ public static class TelemetryService
             foreach (var jar in jarFiles)
             {
                 var name = Path.GetFileName(jar);
-                // 路径穿越检查
                 if (!name.Contains(".."))
                 {
                     modNames.Add(name);
                 }
 
-                // 限制最大 200 个
                 if (modNames.Count >= 200)
                     break;
             }
@@ -148,5 +209,12 @@ public static class TelemetryService
         {
             return (0, new List<string>());
         }
+    }
+
+    /// <summary>遥测策略模型 — 服务端下发</summary>
+    private sealed class TelemetryPolicy
+    {
+        /// <summary>是否允许遥测上报</summary>
+        public bool Enabled { get; set; } = true;
     }
 }

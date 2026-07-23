@@ -128,6 +128,8 @@ public static class ThirdPartyAuthService
             AuthServer = apiLocation,
             AuthServerName = serverName,
             Password = password,
+            // 如果登录时使用的是邮箱（包含 @），则记录为邮箱
+            Email = username.Contains('@') ? username : null,
             IsUserSet = true,
         };
     }

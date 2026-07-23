@@ -51,6 +51,9 @@ public class McAccount
     /// <summary>第三方验证密码 (仅 ThirdParty, 加密存储)</summary>
     public string? Password { get; set; }
 
+    /// <summary>用户邮箱 (微软正版和第三方验证登录时记录，离线模式为 null)</summary>
+    public string? Email { get; set; }
+
     /// <summary>用户是否已显式设置</summary>
     public bool IsUserSet { get; set; } = false;
 
