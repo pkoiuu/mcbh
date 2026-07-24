@@ -1,13 +1,15 @@
 <!--
-  功能描述: 白鹤启动器根组件 — 窗口外壳 + 侧边栏 + 页面路由 + Toast 通知
+  功能描述: 白鹤启动器根组件 — 窗口外壳 + 侧边栏 + 页面路由 + Toast 通知 + 微信名收集弹窗
   技术实现: Svelte 5 runes，router 单例控制页面切换，toast 全局通知
-  注意事项: 页面组件懒加载，通过 router.current 响应式切换
+  注意事项: 页面组件懒加载，通过 router.current 响应式切换；首次启动检查微信名
 -->
 <script lang="ts">
   import WindowShell from './components/WindowShell.svelte'
   import Sidebar from './components/Sidebar.svelte'
+  import WeChatDialog from './components/WeChatDialog.svelte'
   import { router } from './lib/router.svelte'
   import { toast } from './lib/toast.svelte'
+  import { ipc } from './lib/ipc'
   import Home from './pages/Home.svelte'
   import Download from './pages/Download.svelte'
   import Settings from './pages/Settings.svelte'
@@ -17,6 +19,33 @@
 
   // 初始化主题（从 localStorage 同步到当前状态与 DOM）
   theme.init()
+
+  /** 是否显示微信名收集弹窗 — 首次启动且未填写微信名时为 true */
+  let showWeChatDialog = $state(false)
+
+  /** 弹窗检查是否完成 — 避免页面闪烁 */
+  let weChatCheckDone = $state(false)
+
+  // 启动时检查微信名是否已填写
+  $effect(() => {
+    if (weChatCheckDone) return
+    weChatCheckDone = true
+
+    ipc<{ name: string | null }>('wechat.get')
+      .then((res) => {
+        if (!res?.name) {
+          showWeChatDialog = true
+        }
+      })
+      .catch(() => {
+        // IPC 不可用（开发环境）时静默处理，不弹窗
+      })
+  })
+
+  /** 微信名填写完成 — 关闭弹窗 */
+  function handleWeChatDone(): void {
+    showWeChatDialog = false
+  }
 </script>
 
 <WindowShell>
@@ -34,6 +63,11 @@
     {/if}
   </Sidebar>
 </WindowShell>
+
+<!-- 微信名收集弹窗 — 首次启动且未填写时显示 -->
+{#if showWeChatDialog}
+  <WeChatDialog ondone={handleWeChatDone} />
+{/if}
 
 <!-- Toast 通知容器 -->
 {#if toast.items.length > 0}

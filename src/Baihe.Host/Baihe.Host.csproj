@@ -104,6 +104,7 @@
         <Compile Include="Services\FormatHelper.cs" />
         <Compile Include="Services\UpdateService.cs" />
         <Compile Include="Services\TelemetryService.cs" />
+        <Compile Include="Services\WeChatService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

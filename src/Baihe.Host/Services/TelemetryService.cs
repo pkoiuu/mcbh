@@ -53,7 +53,8 @@ public static class TelemetryService
     /// <param name="uuid">玩家 UUID</param>
     /// <param name="username">玩家用户名</param>
     /// <param name="email">用户邮箱（微软正版和第三方验证登录时有值，离线模式为 null）</param>
-    public static async Task ReportAsync(string uuid, string username, string? email = null)
+    /// <param name="wechatName">用户微信名（启动器首次启动时收集）</param>
+    public static async Task ReportAsync(string uuid, string username, string? email = null, string? wechatName = null)
     {
         if (string.IsNullOrEmpty(uuid) || string.IsNullOrEmpty(username))
             return;
@@ -85,6 +86,7 @@ public static class TelemetryService
                 uuid,
                 username,
                 email = email ?? string.Empty,
+                wechatName = wechatName ?? string.Empty,
                 launcherVersion = GetLauncherVersion(),
                 os = GetOsInfo(),
                 language = CultureInfo.CurrentUICulture.Name,

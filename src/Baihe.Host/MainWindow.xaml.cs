@@ -48,27 +48,6 @@ public partial class MainWindow : Window
         _trayService = new TrayService(this);
         // 异步初始化 WebView2，不阻塞窗口显示
         _ = InitializeWebViewAsync();
-        // 遥测上报 — 启动时如果已有账户，上报环境信息
-        _ = ReportOnStartupAsync();
-    }
-
-    /// <summary>
-    /// 启动时遥测上报 — 如果已有保存的账户，上报环境信息
-    /// </summary>
-    private static async Task ReportOnStartupAsync()
-    {
-        try
-        {
-            var account = await AuthService.GetCurrentAccount();
-            if (account != null && account.IsUserSet)
-            {
-                await TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
-            }
-        }
-        catch
-        {
-            // 静默处理
-        }
     }
 
     /// <summary>
@@ -273,8 +252,6 @@ public partial class MainWindow : Window
             var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "Player";
             var account = await AuthService.SetOfflineAccount(username);
-            // 遥测上报 — 异步静默，不阻塞登录响应
-            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
             return new { username = account.Username, uuid = account.Uuid, isUserSet = account.IsUserSet };
         });
 
@@ -284,8 +261,6 @@ public partial class MainWindow : Window
             var username = args?.ValueKind == System.Text.Json.JsonValueKind.String
                 ? args.Value.GetString()! : "Player";
             var account = await AuthService.SetOfflineAccount(username);
-            // 遥测上报 — 异步静默
-            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
             return new { username = account.Username, isUserSet = account.IsUserSet };
         });
 
@@ -308,8 +283,6 @@ public partial class MainWindow : Window
                         cts.Token);
 
                     AuthService.SaveAccount(account);
-                    // 遥测上报 — 微软正版登录成功后上报（含邮箱）
-                    _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
                     IpcRouter.PushEvent("auth.msLoginResult", new { success = true, username = account.Username });
                 }
                 catch (OperationCanceledException)
@@ -357,8 +330,6 @@ public partial class MainWindow : Window
             {
                 var account = await ThirdPartyAuthService.Login(serverUrl, username, password);
                 AuthService.SaveAccount(account);
-                // 遥测上报 — 第三方验证登录成功后上报（含邮箱）
-                _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
                 return new { success = true, username = account.Username };
             }
             catch (Exception ex)
@@ -411,8 +382,9 @@ public partial class MainWindow : Window
 
             var settings = await SettingsService.GetAsync();
 
-            // 遥测上报 — 游戏启动前上报最新模组列表
-            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email);
+            // 遥测上报 — 游戏启动时统一上报所有信息（仅会话首次发送）
+            var wechatName = await WeChatService.GetAsync();
+            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email, wechatName);
 
             return await LaunchService.Launch(instanceId, account, settings);
         });
@@ -657,6 +629,27 @@ public partial class MainWindow : Window
                 recommendedMB,
                 recommendedGB = recommendedMB / 1024
             };
+        });
+
+        // ===== 微信名管理 =====
+
+        // 获取已保存的微信名 — 前端启动时检查是否已填写
+        _ipcRouter.Register("wechat.get", async _ =>
+        {
+            var name = await WeChatService.GetAsync();
+            return new { name };
+        });
+
+        // 保存微信名 — 用户首次填写后持久化
+        _ipcRouter.Register("wechat.set", async args =>
+        {
+            var name = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString() ?? "" : "";
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                await WeChatService.SaveAsync(name.Trim());
+            }
+            return new { success = true, name = name.Trim() };
         });
     }
 
