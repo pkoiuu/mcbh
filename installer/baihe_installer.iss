@@ -126,6 +126,25 @@ Type: filesandordirs; Name: "{app}\.minecraft\screenshots"
 Type: filesandordirs; Name: "{app}\.minecraft\downloads"
 
 [Code]
+const
+  AppProcessName = 'Baihe.exe';
+
+// 检测进程是否在运行
+function IsAppRunning(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq ' + AppProcessName + '" 2>NUL | FIND "' + AppProcessName + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+// 强制关闭进程（含子进程 — WebView2 渲染进程等）
+function KillApp(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "' + AppProcessName + '" /T /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 // 检测 WebView2 Runtime 是否已安装
 function WebView2Installed(): Boolean;
 begin
@@ -133,7 +152,64 @@ begin
     or RegKeyExists(HKCU, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}');
 end;
 
+// ===== 安装/升级前：检测并关闭运行中的启动器 =====
 function InitializeSetup(): Boolean;
 begin
   Result := True;
+
+  if IsAppRunning() then
+  begin
+    if MsgBox('检测到白鹤服务器启动器正在运行。' #13#10#13#10 '升级需要先关闭正在运行的启动器。' #13#10 '是否立即关闭并继续升级？', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      KillApp();
+      Sleep(1000); // 等待进程完全退出和文件句柄释放
+    end
+    else
+    begin
+      MsgBox('请手动关闭白鹤服务器启动器后重新运行安装程序。', mbInformation, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+// ===== 文件复制前：最终保障 — 确保进程已关闭 =====
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Attempts: Integer;
+begin
+  Result := '';
+
+  if IsAppRunning() then
+  begin
+    for Attempts := 1 to 3 do
+    begin
+      KillApp();
+      Sleep(500);
+      if not IsAppRunning() then
+        Break;
+    end;
+
+    if IsAppRunning() then
+      Result := '无法关闭正在运行的白鹤服务器启动器，请手动关闭后重试。';
+  end;
+end;
+
+// ===== 卸载前：检测并关闭运行中的启动器 =====
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+
+  if IsAppRunning() then
+  begin
+    if MsgBox('检测到白鹤服务器启动器正在运行。' #13#10#13#10 '卸载需要先关闭启动器。' #13#10 '是否立即关闭并继续卸载？', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      KillApp();
+      Sleep(1000);
+    end
+    else
+    begin
+      MsgBox('请手动关闭白鹤服务器启动器后重新运行卸载程序。', mbInformation, MB_OK);
+      Result := False;
+    end;
+  end;
 end;
