@@ -4,6 +4,7 @@
   注意事项: 页面组件懒加载，通过 router.current 响应式切换；首次启动检查微信名
 -->
 <script lang="ts">
+  import { onMount } from 'svelte'
   import WindowShell from './components/WindowShell.svelte'
   import Sidebar from './components/Sidebar.svelte'
   import WeChatDialog from './components/WeChatDialog.svelte'
@@ -23,22 +24,19 @@
   /** 是否显示微信名收集弹窗 — 首次启动且未填写微信名时为 true */
   let showWeChatDialog = $state(false)
 
-  /** 弹窗检查是否完成 — 避免页面闪烁 */
-  let weChatCheckDone = $state(false)
-
-  // 启动时检查微信名是否已填写
-  $effect(() => {
-    if (weChatCheckDone) return
-    weChatCheckDone = true
-
+  // 启动时检查微信名是否已填写 — 使用 onMount 确保只执行一次
+  onMount(() => {
     ipc<{ name: string | null }>('wechat.get')
       .then((res) => {
+        console.log('[WeChat] check result:', res)
         if (!res?.name) {
           showWeChatDialog = true
         }
       })
-      .catch(() => {
-        // IPC 不可用（开发环境）时静默处理，不弹窗
+      .catch((err) => {
+        // IPC 失败时也弹窗 — 无法确认是否已填写，安全起见显示弹窗
+        console.warn('[WeChat] IPC failed, showing dialog:', err)
+        showWeChatDialog = true
       })
   })
 
