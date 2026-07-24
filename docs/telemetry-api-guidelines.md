@@ -111,8 +111,7 @@ X-Api-Key: <启动器内置的 secret key>
   "launcherVersion": "1.0.1",
   "os": "Microsoft Windows 10.0.19045",
   "language": "zh-CN",
-  "modCount": 10,
-  "modList": ["sodium-fabric-0.6.13.jar", "lithium-fabric-0.13.4.jar"]
+  "accountType": "Microsoft"
 }
 ```
 
@@ -127,8 +126,7 @@ X-Api-Key: <启动器内置的 secret key>
 | launcherVersion | string | 是 | 启动器版本号（三段格式：主.次.修） |
 | os | string | 是 | 操作系统信息 |
 | language | string | 是 | 语言环境（如 zh-CN） |
-| modCount | number | 是 | 模组数量 |
-| modList | string[] | 是 | 模组文件名列表（最大 200 项） |
+| accountType | string | 是 | 账户类型（Offline/Microsoft/ThirdParty） |
 
 **成功响应** (200):
 ```json
@@ -176,7 +174,7 @@ X-Api-Key: <启动器内置的 secret key>
 5. **错误响应必须包含 `success: false` 和 `error` 字段**
 6. **上报接口必须幂等**：相同 UUID 的重复上报不报错，只更新 `last_active`
 7. **IP 地址必须从 `X-Real-IP` 或 `X-Forwarded-For` 头获取**，不信任客户端上报的 IP
-8. **modList 最大长度 200**，超出截断并记录 warning 日志
+8. **accountType 仅接受枚举值**：`Offline`、`Microsoft`、`ThirdParty`，其他值拒绝并返回 400
 9. **请求体最大 64KB**，超出返回 413
 10. **所有接口响应时间必须 < 200ms**（SQLite + 本地 ip2region 足以保证）
 
@@ -200,8 +198,7 @@ X-Api-Key: <启动器内置的 secret key>
 | os | 客户端 Environment.OSVersion | 游戏启动时 | 否 | 明文 |
 | language | 客户端 CultureInfo | 游戏启动时 | 否 | 明文 |
 | launcherVersion | 客户端 Assembly | 游戏启动时 | 否 | 明文 |
-| modCount | 客户端扫描 mods/ | 游戏启动时 | 否 | 整数 |
-| modList | 客户端扫描 mods/ | 游戏启动时 | 否 | JSON 数组 |
+| accountType | 客户端 Auth 系统 | 游戏启动时 | 否 | 明文 |
 
 ### 4.2 禁止收集的字段
 
@@ -237,8 +234,7 @@ CREATE TABLE player_reports (
     os TEXT,
     language TEXT,
     launcher_version TEXT,
-    mod_count INTEGER DEFAULT 0,
-    mod_list TEXT,
+    account_type TEXT DEFAULT 'Offline',
     reported_at TEXT NOT NULL
 );
 
@@ -272,9 +268,9 @@ CREATE INDEX idx_reports_wechat ON player_reports(wechat_name);
 
 ### 5.3 输入验证
 
-- [ ] 所有字符串字段必须做长度限制（username ≤ 16, email ≤ 256, wechatName ≤ 32, modList ≤ 200 项）
+- [ ] 所有字符串字段必须做长度限制（username ≤ 16, email ≤ 256, wechatName ≤ 32, accountType ≤ 16）
 - [ ] UUID 必须做格式校验（正则或 GUID.TryParse）
-- [ ] modList 中每个文件名必须做路径穿越检查（禁止 `../`）
+- [ ] accountType 必须做枚举校验（仅允许 Offline/Microsoft/ThirdParty）
 - [ ] 请求体大小限制 64KB
 - [ ] 请求频率限制：同一 IP 每分钟最多 30 次请求
 
@@ -436,7 +432,7 @@ CREATE INDEX idx_reports_wechat ON player_reports(wechat_name);
 // 正确：异步、静默、单例 HttpClient
 private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
 
-public static async Task ReportAsync(string uuid, string username)
+public static async Task ReportAsync(string uuid, string username, string? email = null, string? wechatName = null, string accountType = "Offline")
 {
     try
     {
@@ -444,11 +440,12 @@ public static async Task ReportAsync(string uuid, string username)
         {
             uuid,
             username,
+            email = email ?? string.Empty,
+            wechatName = wechatName ?? string.Empty,
+            accountType = accountType ?? "Offline",
             launcherVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3),
             os = Environment.OSVersion.ToString(),
             language = CultureInfo.CurrentUICulture.Name,
-            modCount = CountMods(),
-            modList = GetModList()
         };
 
         var json = JsonSerializer.Serialize(payload);

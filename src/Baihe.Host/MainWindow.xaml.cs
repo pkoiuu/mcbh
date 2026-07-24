@@ -384,7 +384,7 @@ public partial class MainWindow : Window
 
             // 遥测上报 — 游戏启动时统一上报所有信息（仅会话首次发送）
             var wechatName = await WeChatService.GetAsync();
-            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email, wechatName);
+            _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email, wechatName, account.Type.ToString());
 
             return await LaunchService.Launch(instanceId, account, settings);
         });

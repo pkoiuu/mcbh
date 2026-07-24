@@ -3,9 +3,7 @@
 // 上报策略：每会话仅首次上报，首次上报前请求服务端策略决定是否允许
 
 using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -54,7 +52,8 @@ public static class TelemetryService
     /// <param name="username">玩家用户名</param>
     /// <param name="email">用户邮箱（微软正版和第三方验证登录时有值，离线模式为 null）</param>
     /// <param name="wechatName">用户微信名（启动器首次启动时收集）</param>
-    public static async Task ReportAsync(string uuid, string username, string? email = null, string? wechatName = null)
+    /// <param name="accountType">账户类型（Offline/Microsoft/ThirdParty）</param>
+    public static async Task ReportAsync(string uuid, string username, string? email = null, string? wechatName = null, string accountType = "Offline")
     {
         if (string.IsNullOrEmpty(uuid) || string.IsNullOrEmpty(username))
             return;
@@ -79,19 +78,16 @@ public static class TelemetryService
 
         try
         {
-            var (modCount, modList) = GetModInfo();
-
             var payload = new
             {
                 uuid,
                 username,
                 email = email ?? string.Empty,
                 wechatName = wechatName ?? string.Empty,
+                accountType = accountType ?? "Offline",
                 launcherVersion = GetLauncherVersion(),
                 os = GetOsInfo(),
                 language = CultureInfo.CurrentUICulture.Name,
-                modCount,
-                modList
             };
 
             var json = JsonSerializer.Serialize(payload, _jsonOptions);
@@ -174,42 +170,6 @@ public static class TelemetryService
         catch
         {
             return Environment.OSVersion.ToString();
-        }
-    }
-
-    /// <summary>
-    /// 扫描 .minecraft/mods/ 目录，获取模组列表和数量
-    /// </summary>
-    private static (int count, List<string> list) GetModInfo()
-    {
-        try
-        {
-            var mcDir = InstanceService.GetMcDirectory();
-            var modsDir = Path.Combine(mcDir, "mods");
-
-            if (!Directory.Exists(modsDir))
-                return (0, new List<string>());
-
-            var jarFiles = Directory.GetFiles(modsDir, "*.jar");
-            var modNames = new List<string>();
-
-            foreach (var jar in jarFiles)
-            {
-                var name = Path.GetFileName(jar);
-                if (!name.Contains(".."))
-                {
-                    modNames.Add(name);
-                }
-
-                if (modNames.Count >= 200)
-                    break;
-            }
-
-            return (modNames.Count, modNames);
-        }
-        catch
-        {
-            return (0, new List<string>());
         }
     }
 
