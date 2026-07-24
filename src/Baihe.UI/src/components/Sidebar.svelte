@@ -106,7 +106,7 @@
   <!-- 底部版本号 -->
   <div class="mt-auto pt-3">
     <div class="text-xs text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">
-      白鹤服务器 v1.1.0
+      白鹤服务器 v1.1.1
     </div>
   </div>
 </aside>
