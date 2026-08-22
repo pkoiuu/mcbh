@@ -262,9 +262,9 @@
             </div>
           </div>
 
-          <!-- 悬浮说明浮层 — 悬停显示描述与适用机型 -->
+          <!-- 悬浮说明浮层 — 悬停时覆盖预览图区域（顶部 144px），不遮挡下方操作按钮 -->
           {#if meta}
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 translate-y-full bg-[rgba(20,20,22,0.92)] p-4 text-[12px] leading-relaxed text-[var(--foreground)] opacity-0 shadow-xl backdrop-blur-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+            <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 -translate-y-full overflow-y-auto bg-[rgba(20,20,22,0.94)] p-3 text-[12px] leading-relaxed text-[var(--foreground)] opacity-0 shadow-xl backdrop-blur-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
               <div class="font-semibold">{meta.displayName}</div>
               <div class="mt-1 text-[var(--muted-foreground)]">{meta.description}</div>
               <div class="mt-2 flex items-center gap-1.5 text-[11px]">
