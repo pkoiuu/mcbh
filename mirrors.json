@@ -1,0 +1,27 @@
+﻿{
+  "version": 1,
+  "updated": "2026-08-22",
+  "note": "GitHub 下载加速站列表（URL 前缀转换型，格式: 镜像前缀 + https://github.com/...）。启动器每次检查更新时自动拉取本文件获取最新列表，并在真实网络环境测速选择最快镜像。维护方式：增删此数组即可，无需发布新版本。",
+  "mirrors": [
+    "https://ghfast.top/",
+    "https://ghproxy.net/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.link/",
+    "https://gh.ddlc.top/",
+    "https://ghproxy.cn/",
+    "https://gh.llkk.cc/",
+    "https://ghproxy.cxkpro.top/",
+    "https://gh.xxooo.cf/",
+    "https://github.limoruirui.com/",
+    "https://ghproxy.monkeyray.net/",
+    "https://gh.xx9527.cn/",
+    "https://ghproxy.cc/",
+    "https://gh.api.99988866.xyz/",
+    "https://ghps.cc/",
+    "https://gh.con.sh/",
+    "https://github.moeyy.xyz/",
+    "https://ghproxy.net.cn/",
+    "https://gh.catmak.name/",
+    "https://g.blfrp.cn/"
+  ]
+}

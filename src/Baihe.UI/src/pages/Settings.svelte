@@ -148,7 +148,7 @@
 
   // 更新检查
   let updateChecking = $state(false)
-  let updateInfo = $state<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string } | null>(null)
+  let updateInfo = $state<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; downloadSpeedMBps?: number; downloadSource?: string } | null>(null)
 
   /** 系统内存信息 */
   interface SystemMemory {
@@ -217,7 +217,7 @@
   async function checkForUpdate(): Promise<void> {
     updateChecking = true
     try {
-      updateInfo = await ipc<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string }>('update.check')
+      updateInfo = await ipc<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; downloadSpeedMBps?: number; downloadSource?: string }>('update.check')
     } catch {
       updateInfo = null
     } finally {
@@ -740,6 +740,11 @@
                   <div class="flex items-center gap-3">
                     {#if updateInfo.hasUpdate}
                       <span class="text-sm text-[var(--primary)]">发现新版本 v{updateInfo.latestVersion}</span>
+                      {#if updateInfo.downloadSource && updateInfo.downloadSpeedMBps && updateInfo.downloadSpeedMBps > 0}
+                        <span class="text-[11px] text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">
+                          {updateInfo.downloadSource} · {updateInfo.downloadSpeedMBps.toFixed(1)} MB/s
+                        </span>
+                      {/if}
                       <button
                         type="button"
                         class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-70"

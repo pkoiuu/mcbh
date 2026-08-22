@@ -187,7 +187,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | SaveService | 284 | 存档备份/导入/恢复 | zip + 临时目录；导入按 level.dat 识别 |
 | ToolService | 145 | 截图列表 / 打开文件夹 / 游戏修复 | 修复 = 完整性检查（报告型） |
 | TrayService | 154 | 系统托盘（WinForms NotifyIcon） | **唯一实例类**；三路图标加载兜底 |
-| UpdateService | 153 | GitHub Releases 更新检查 | 10s 超时；国内镜像多列表自动回退 |
+| UpdateService | 153 | GitHub Releases 更新检查 | 镜像列表自动更新（mirrors.json）+ 运行时测速选最快 |
 | TelemetryService | 182 | 遥测上报（每会话首次 + 服务端策略） | 见 §8.6 |
 | WeChatService | 71 | 微信名持久化（wechat.json） | 独立于账户 |
 | FormatHelper | 15 | 字节大小格式化 | 被多处复用 |
@@ -335,7 +335,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 
 ### 7.4 更新流程（UpdateService）
 
-`GET https://api.github.com/repos/pkoiuu/mcbh/releases/latest`（10s 超时，带 UA）→ 解析 tag_name（去 v）、找 .exe asset 的 browser_download_url → 并行探测国内镜像（ghfast.top/ghproxy.net/gh-proxy.com/gh.llkk.cc/ghproxy.link）取第一个可达的加速链接，全部失败回退 GitHub 直链 → `Version` 比较 → 失败静默返回无更新。注意：**这里只用 `Assembly.GetName().Version`，而 app.getVersion 用 FileVersion——两处取版本的方式不同**（Release 下 FileVersion 由 tag 注入，AssemblyVersion 同样由 tag 注入，一般一致）。
+`GET https://api.github.com/repos/pkoiuu/mcbh/releases/latest`（15s 超时，带 UA）→ 解析 tag_name（去 v）、找 .exe asset 的 browser_download_url → **镜像列表自动更新**（并行拉取仓库 `mirrors.json`，失败用内置兜底列表）→ 对真实下载 URL **并行测速**（普通 GET 读前 512KB 计时，不用 Range——部分镜像不支持）选**最快**镜像 → 全部失败回退 GitHub 直链 → `Version` 比较 → 失败静默返回无更新。返回含 `DownloadSource`（加速源主机名）与 `DownloadSpeedMBps`（测速结果，前端展示）。注意：**这里只用 `Assembly.GetName().Version`，而 app.getVersion 用 FileVersion——两处取版本的方式不同**（Release 下 FileVersion 由 tag 注入，AssemblyVersion 同样由 tag 注入，一般一致）。
 
 ### 7.5 遥测流程（TelemetryService）
 

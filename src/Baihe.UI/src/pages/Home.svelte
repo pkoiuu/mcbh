@@ -61,6 +61,8 @@
     downloadUrl: string
     releaseUrl: string
     releaseNotes: string
+    downloadSpeedMBps?: number
+    downloadSource?: string
   }
 
   // 实例状态
@@ -261,7 +263,14 @@
         <Icon name="info" size={20} class="text-blue-400 shrink-0" />
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-[var(--foreground)]">发现新版本 v{updateInfo.latestVersion}</div>
-          <div class="text-[12px] text-[var(--muted-foreground)]">当前版本 v{updateInfo.currentVersion} · 升级不会影响游戏设置和存档</div>
+          <div class="text-[12px] text-[var(--muted-foreground)]">
+            当前版本 v{updateInfo.currentVersion} · 升级不会影响游戏设置和存档
+            {#if updateInfo.downloadSource && updateInfo.downloadSpeedMBps && updateInfo.downloadSpeedMBps > 0}
+              <span class="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-400">
+                加速源 {updateInfo.downloadSource} · {updateInfo.downloadSpeedMBps.toFixed(1)} MB/s
+              </span>
+            {/if}
+          </div>
         </div>
         <button
           type="button"
