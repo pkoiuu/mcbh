@@ -126,6 +126,12 @@ public partial class MainWindow : Window
             return await UpdateService.CheckForUpdateAsync(force);
         });
 
+        // 最新动态 — 拉取仓库 news.json（首页公告，可自动更新）
+        _ipcRouter.Register("news.list", async _ =>
+        {
+            return await NewsService.GetNewsAsync();
+        });
+
         // ===== Stage 2: 启动核心命令 =====
 
         // 版本清单

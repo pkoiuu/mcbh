@@ -370,8 +370,9 @@
       <div class="flex flex-col gap-1">
         {#each categories as cat (cat.key)}
           <a
-            href="javascript:void(0)"
-            class="group flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition-colors {activeCategory === cat.key ? 'bg-[var(--sidebar-accent)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'}"
+            role="button"
+            tabindex="0"
+            class="group flex h-9 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm transition-colors {activeCategory === cat.key ? 'bg-[var(--sidebar-accent)] text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--secondary)]'}"
             onclick={(e) => {
               e.preventDefault()
               activeCategory = cat.key
@@ -768,7 +769,7 @@
               </div>
               <div class="flex items-center justify-between py-3">
                 <span class="whitespace-nowrap text-sm text-[var(--foreground)]">开源地址</span>
-                <a href="javascript:void(0)" class="text-sm text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={() => ipc('open.url', 'https://github.com/pkoiuu/mcbh')}>GitHub 仓库 →</a>
+                <button type="button" class="cursor-pointer text-sm text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={() => ipc('open.url', 'https://github.com/pkoiuu/mcbh')}>GitHub 仓库 →</button>
               </div>
             </div>
           </section>

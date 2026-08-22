@@ -101,8 +101,9 @@
   <nav class="mt-3 flex flex-col gap-1" aria-label="主导航">
     {#each navItems as item (item.key)}
       <a
-      href="javascript:void(0)"
-      class="nav-item group flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-all duration-200 hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
+      role="button"
+      tabindex="0"
+      class="nav-item group flex h-9 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm text-[var(--sidebar-foreground)] transition-all duration-200 hover:bg-[var(--secondary)] data-[active=true]:bg-[var(--sidebar-accent)] data-[active=true]:text-[var(--foreground)]"
       data-active={router.current === item.key}
       onclick={(e) => handleNav(e, item.key)}
     >

@@ -106,6 +106,7 @@
         <Compile Include="Services\NbtHelper.cs" />
         <Compile Include="Services\ServerListService.cs" />
         <Compile Include="Services\MinecraftRules.cs" />
+        <Compile Include="Services\NewsService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

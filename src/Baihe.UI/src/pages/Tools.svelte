@@ -20,6 +20,8 @@
     enabled: boolean
     lastModified: string
     iconDataUrl?: string | null
+    chineseName?: string
+    description?: string | null
   }
 
   interface ScreenshotItem {
@@ -437,14 +439,25 @@
 
                   <!-- Mod 信息 -->
                   <div class="min-w-0 flex-1">
-                    <div class="truncate text-[14px] font-semibold text-[var(--foreground)]">
-                      {mod.displayName || mod.fileName}
+                    <div class="flex items-center gap-2">
+                      <span class="truncate text-[14px] font-semibold text-[var(--foreground)]">
+                        {mod.chineseName || mod.displayName || mod.fileName}
+                      </span>
+                      {#if mod.chineseName && mod.displayName && mod.chineseName !== mod.displayName}
+                        <span class="shrink-0 text-[11px] text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{mod.displayName}</span>
+                      {/if}
                     </div>
-                    <div class="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">
-                      <span style="font-family: var(--font-mono);">{mod.sizeText}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{mod.lastModified || '—'}</span>
-                    </div>
+                    {#if mod.description}
+                      <div class="mt-0.5 truncate text-[12px] text-[var(--muted-foreground)]" title={mod.description}>
+                        {mod.description}
+                      </div>
+                    {:else}
+                      <div class="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">
+                        <span style="font-family: var(--font-mono);">{mod.sizeText}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{mod.lastModified || '—'}</span>
+                      </div>
+                    {/if}
                   </div>
 
                   <!-- 状态标签 -->

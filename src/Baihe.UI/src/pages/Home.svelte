@@ -113,10 +113,30 @@
     }
   }
 
-  /** 新闻列表 */
-  const news = [
+  /** 新闻列表 — 从后端 news.list 拉取（自动同步仓库 news.json），失败用内置兜底 */
+  interface NewsItem {
+    date: string
+    title: string
+    desc: string
+  }
+
+  const builtinNews: NewsItem[] = [
     { date: '07·23', title: '自研白鹤服务器启动器1.0正式版正式发布', desc: '全新 UI,超高效率,内置聊天工具' },
   ]
+
+  let news = $state<NewsItem[]>(builtinNews)
+
+  /** 加载最新动态 */
+  async function loadNews(): Promise<void> {
+    try {
+      const result = await ipc<NewsItem[]>('news.list')
+      if (Array.isArray(result) && result.length > 0) {
+        news = result
+      }
+    } catch {
+      // 拉取失败保持内置内容
+    }
+  }
 
   /** 页面加载时获取当前实例 */
   async function loadInstance(): Promise<void> {
@@ -253,6 +273,7 @@
   checkServerStatus()
   checkAccount()
   checkForUpdate()
+  loadNews()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -423,7 +444,7 @@
     <section>
       <div class="flex items-center justify-between">
         <h2 class="text-[16px] font-semibold text-[var(--foreground)]">最新动态</h2>
-        <a href="javascript:void(0)" class="text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-80" onclick={(e) => e.preventDefault()}>查看全部</a>
+        <span class="text-[13px] font-medium text-[var(--muted-foreground)]">最新公告</span>
       </div>
       <div class="mt-3">
         {#each news as item (item.title)}

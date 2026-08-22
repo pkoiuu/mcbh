@@ -17,12 +17,46 @@ public static class ModService
     /// <summary>Mod 图标缓存 — 按文件名缓存提取结果，文件 mtime/size 变化时失效</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedModIcon> IconCache = new();
 
+    /// <summary>Mod 元数据缓存 — fabric.mod.json 的 name/description，按文件名缓存</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedModMeta> MetaCache = new();
+
     private sealed class CachedModIcon
     {
         public DateTime LastWriteTimeUtc;
         public long Length;
         public string? IconDataUrl;
     }
+
+    private sealed class CachedModMeta
+    {
+        public DateTime LastWriteTimeUtc;
+        public long Length;
+        public string Id = "";
+        public string DisplayName = "";
+        public string? Description;
+    }
+
+    /// <summary>
+    /// 常见模组中文名映射（fabric.mod.json 的 name 多为英文，这里映射为中文显示名）
+    /// key: fabric.mod.json 的 id 或 name（小写）
+    /// </summary>
+    private static readonly Dictionary<string, string> ChineseNameMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sodium"] = "钠",
+        ["sodium-extra"] = "钠 · 扩展",
+        ["jade"] = "玉",
+        ["appleskin"] = "苹果皮",
+        ["modmenu"] = "模组菜单",
+        ["xaerominimap"] = "Xaero 的小地图",
+        ["placeholder-api"] = "文本占位符 API",
+        ["fabric-api"] = "Fabric API",
+        ["cloth-config"] = "Cloth Config",
+        ["yet_another_config_lib"] = "YACL 配置库",
+        ["yet_another_config_lib_v3"] = "YACL 配置库",
+        ["iris"] = "Iris 光影",
+        ["bettertab"] = "Better Tab",
+        ["imblocker"] = "输入法冲突修复",
+    };
 
     /// <summary>获取 mods 目录路径 — 游戏实际加载的全局 mods 目录 (.minecraft/mods)</summary>
     private static string GetModsDir()
@@ -57,6 +91,12 @@ public static class ModService
             mod.DisplayName = ExtractModName(info.Name);
             // 从 jar 内 fabric.mod.json 提取图标（base64 data URL，带缓存）
             mod.IconDataUrl = GetModIcon(file, info);
+            // 从 fabric.mod.json 读取真实名称与介绍（带缓存），并映射中文名
+            var meta = GetModMeta(file, info);
+            if (!string.IsNullOrEmpty(meta.DisplayName))
+                mod.DisplayName = meta.DisplayName;
+            mod.Description = meta.Description;
+            mod.ChineseName = ResolveChineseName(meta);
             mods.Add(mod);
         }
 
@@ -74,6 +114,12 @@ public static class ModService
             };
             mod.DisplayName = ExtractModName(info.Name.Replace(".disabled", ""));
             mod.IconDataUrl = GetModIcon(file, info);
+            // 从 fabric.mod.json 读取真实名称与介绍（带缓存），并映射中文名
+            var meta = GetModMeta(file, info);
+            if (!string.IsNullOrEmpty(meta.DisplayName))
+                mod.DisplayName = meta.DisplayName;
+            mod.Description = meta.Description;
+            mod.ChineseName = ResolveChineseName(meta);
             mods.Add(mod);
         }
 
@@ -102,6 +148,93 @@ public static class ModService
             IconDataUrl = icon,
         };
         return icon;
+    }
+
+    /// <summary>
+    /// 获取 Mod 元数据（name/description）— 带缓存，文件 mtime/size 未变时复用
+    /// </summary>
+    private static CachedModMeta GetModMeta(string jarPath, FileInfo info)
+    {
+        if (MetaCache.TryGetValue(info.Name, out var cached)
+            && cached.LastWriteTimeUtc == info.LastWriteTimeUtc
+            && cached.Length == info.Length)
+        {
+            return cached;
+        }
+
+        var meta = TryReadModMeta(jarPath);
+        MetaCache[info.Name] = new CachedModMeta
+        {
+            LastWriteTimeUtc = info.LastWriteTimeUtc,
+            Length = info.Length,
+            Id = meta.Id,
+            DisplayName = meta.DisplayName,
+            Description = meta.Description,
+        };
+        return meta;
+    }
+
+    /// <summary>
+    /// 从 fabric.mod.json / quilt.mod.json 读取模组真实名称与介绍
+    /// </summary>
+    private static CachedModMeta TryReadModMeta(string jarPath)
+    {
+        var result = new CachedModMeta();
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(jarPath);
+            var metaEntry = archive.Entries.FirstOrDefault(e =>
+                e.FullName.Equals("fabric.mod.json", StringComparison.OrdinalIgnoreCase)
+                || e.FullName.Equals("quilt.mod.json", StringComparison.OrdinalIgnoreCase));
+            if (metaEntry == null)
+                return result;
+
+            using var reader = new StreamReader(metaEntry.Open());
+            using var doc = System.Text.Json.JsonDocument.Parse(reader.ReadToEnd());
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                result.Id = idProp.GetString() ?? "";
+
+            if (root.TryGetProperty("name", out var nameProp) && nameProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                result.DisplayName = nameProp.GetString() ?? "";
+
+            if (root.TryGetProperty("description", out var descProp) && descProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                result.Description = descProp.GetString()?.Trim();
+        }
+        catch
+        {
+            // 读取失败返回空
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 解析中文名 — 优先按 mod id 映射，其次按 displayName 模糊匹配，最后回退 displayName
+    /// </summary>
+    private static string ResolveChineseName(CachedModMeta meta)
+    {
+        // 1. 按 fabric.mod.json 的 id 精确匹配
+        if (!string.IsNullOrEmpty(meta.Id) && ChineseNameMap.TryGetValue(meta.Id, out var byId))
+            return byId;
+
+        // 2. 按 displayName 模糊匹配（如 "Sodium" 含 "sodium"）
+        var key = meta.DisplayName;
+        if (!string.IsNullOrEmpty(key))
+        {
+            foreach (var (k, v) in ChineseNameMap)
+            {
+                if (key.Contains(k, StringComparison.OrdinalIgnoreCase)
+                    || k.Contains(key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return v;
+                }
+            }
+            return key;
+        }
+
+        // 3. 回退 id 或空
+        return meta.Id;
     }
 
     /// <summary>
@@ -280,4 +413,8 @@ public class ModInfo
     public string LastModified { get; set; } = "";
     /// <summary>Mod 图标 (base64 data URL)，无图标时为 null</summary>
     public string? IconDataUrl { get; set; }
+    /// <summary>Mod 中文名（映射表查不到时回退 fabric name / 文件名提取名）</summary>
+    public string ChineseName { get; set; } = "";
+    /// <summary>Mod 介绍（来自 fabric.mod.json description）</summary>
+    public string? Description { get; set; }
 }
