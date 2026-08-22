@@ -3,6 +3,9 @@
 # 同时确保 CI 环境也使用 hoisted 模式，避免 .pnpm 隔离目录导致依赖解析失败
 nodeLinker: hoisted
 # 允许 esbuild 运行构建脚本（下载平台特定的二进制文件）
+# pnpm 11.15+ 使用 allowBuilds（布尔值），pnpm 10 使用 onlyBuiltDependencies，两者都保留以兼容
+allowBuilds:
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild
 # 跳过运行脚本前的依赖检查
