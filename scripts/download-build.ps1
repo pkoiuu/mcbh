@@ -1,6 +1,6 @@
 # Download latest CI build using China mirror acceleration
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\download-build.ps1
-# Mirror priority: api.gitproxy.dev > ghfast.top > direct
+# Mirror priority: ghfast.top > ghproxy.net > gh-proxy.com > ghproxy.link > direct
 
 param(
     [string]$OutputDir = "artifacts",
@@ -11,8 +11,10 @@ $ErrorActionPreference = "Stop"
 
 # China mirror list (sorted by priority) — 格式: 前缀 + 去掉 https:// 的原始 URL
 $mirrors = @(
-    "https://api.gitproxy.dev/",
-    "https://ghfast.top/"
+    "https://ghfast.top/",
+    "https://ghproxy.net/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.link/"
 )
 
 # Original release download URL

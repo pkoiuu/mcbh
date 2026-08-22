@@ -1,7 +1,10 @@
 // 更新检查服务 — 检查 GitHub Releases 最新版本，支持国内镜像加速下载
 // 通过 GitHub API 获取最新 Release 信息，与当前版本比较
+// 下载链接按优先级探测国内镜像可用性，全部不可用时回退 GitHub 直链
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
@@ -21,8 +24,18 @@ public static class UpdateService
     private const string RepoOwner = "pkoiuu";
     private const string RepoName = "mcbh";
 
-    /// <summary>国内镜像前缀 — 加速 GitHub 下载 (格式: https://api.gitproxy.dev/github.com/...)</summary>
-    private const string MirrorPrefix = "https://api.gitproxy.dev/";
+    /// <summary>
+    /// 国内镜像前缀列表（按优先级）— 加速 GitHub 下载 (格式: https://镜像/github.com/...)
+    /// 2026-08 实测：仅 ghproxy.link 支持中文文件名（安装包为中文名）；
+    /// 其余镜像对 ASCII 文件名可用、中文名 404/403。探测逻辑按真实 URL 自动跳过不可用的镜像。
+    /// </summary>
+    private static readonly string[] MirrorPrefixes =
+    {
+        "https://ghfast.top/",
+        "https://ghproxy.net/",
+        "https://gh-proxy.com/",
+        "https://ghproxy.link/",
+    };
 
     static UpdateService()
     {
@@ -83,9 +96,13 @@ public static class UpdateService
                 }
             }
 
-            // 应用国内镜像加速 (格式: https://api.gitproxy.dev/github.com/...)
+            // 应用国内镜像加速 — 并行探测镜像可用性，取第一个可达的加速链接
             if (downloadUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-                downloadUrl = MirrorPrefix + downloadUrl.Substring("https://".Length);
+            {
+                var mirrored = await PickAvailableMirrorAsync(downloadUrl);
+                if (mirrored != null)
+                    downloadUrl = mirrored;
+            }
 
             var hasUpdate = IsNewerVersion(latestVersion, currentVersion);
 
@@ -111,6 +128,66 @@ public static class UpdateService
                 ReleaseUrl = "",
                 ReleaseNotes = "",
             };
+        }
+    }
+
+    /// <summary>
+    /// 并行探测镜像可用性 — 返回第一个 HEAD 可达的加速链接；全部失败返回 null（调用方回退直链）
+    /// </summary>
+    private static async Task<string?> PickAvailableMirrorAsync(string downloadUrl)
+    {
+        var candidates = MirrorPrefixes
+            .Select(m => m + downloadUrl.Substring("https://".Length))
+            .ToList();
+
+        // 并行发起 HEAD 请求，按列表顺序取第一个成功的
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var tasks = candidates.Select(c => ProbeAsync(c, cts.Token)).ToArray();
+
+        while (tasks.Length > 0)
+        {
+            var done = await Task.WhenAny(tasks);
+            // 找到 done 对应的下标（按引用）
+            var index = -1;
+            for (var i = 0; i < tasks.Length; i++)
+            {
+                if (ReferenceEquals(tasks[i], done))
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index >= 0)
+            {
+                if (done.Status == TaskStatus.RanToCompletion && done.Result)
+                    return candidates[index];
+                // 移除已失败的任务，继续等待其余镜像
+                var remaining = new List<Task<bool>>(tasks);
+                remaining.RemoveAt(index);
+                tasks = remaining.ToArray();
+            }
+            else
+            {
+                break;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 探测单个镜像是否可达（HEAD 请求，非 4xx/5xx 即视为可用）
+    /// </summary>
+    private static async Task<bool> ProbeAsync(string url, CancellationToken token)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, url);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            return (int)response.StatusCode < 400;
+        }
+        catch
+        {
+            return false;
         }
     }
 
