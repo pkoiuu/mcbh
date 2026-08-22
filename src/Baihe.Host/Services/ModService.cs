@@ -45,6 +45,8 @@ public static class ModService
             };
             // 从文件名提取 mod 名称
             mod.DisplayName = ExtractModName(info.Name);
+            // 从 jar 内 fabric.mod.json 提取图标（base64 data URL）
+            mod.IconDataUrl = TryExtractModIcon(file);
             mods.Add(mod);
         }
 
@@ -61,10 +63,88 @@ public static class ModService
                 LastModified = info.LastWriteTime.ToString("yyyy-MM-dd HH:mm"),
             };
             mod.DisplayName = ExtractModName(info.Name.Replace(".disabled", ""));
+            mod.IconDataUrl = TryExtractModIcon(file);
             mods.Add(mod);
         }
 
         return mods;
+    }
+
+    /// <summary>
+    /// 从 Mod jar 中提取图标 — 读取 fabric.mod.json / quilt.mod.json 的 icon 字段，
+    /// 取出对应文件并转为 base64 data URL。失败返回 null。
+    /// </summary>
+    private static string? TryExtractModIcon(string jarPath)
+    {
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(jarPath);
+
+            // 查找 mod 元数据文件
+            var metaEntry = archive.Entries.FirstOrDefault(e =>
+                e.FullName.Equals("fabric.mod.json", StringComparison.OrdinalIgnoreCase)
+                || e.FullName.Equals("quilt.mod.json", StringComparison.OrdinalIgnoreCase));
+            if (metaEntry == null)
+                return null;
+
+            string? iconPath = null;
+            using (var reader = new StreamReader(metaEntry.Open()))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(reader.ReadToEnd());
+                if (doc.RootElement.TryGetProperty("icon", out var iconProp))
+                {
+                    if (iconProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        iconPath = iconProp.GetString();
+                    }
+                    else if (iconProp.ValueKind == System.Text.Json.JsonValueKind.Object
+                             && iconProp.TryGetProperty("sizes", out var sizes)
+                             && sizes.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        // 选择最大尺寸的图标
+                        string? best = null;
+                        int bestSize = -1;
+                        foreach (var sizeProp in sizes.EnumerateObject())
+                        {
+                            if (int.TryParse(sizeProp.Name, out var size) && size > bestSize)
+                            {
+                                bestSize = size;
+                                best = sizeProp.Value.GetString();
+                            }
+                        }
+                        iconPath = best;
+                    }
+                }
+            }
+
+            if (string.IsNullOrEmpty(iconPath))
+                return null;
+
+            // 从 jar 中读取图标文件
+            var iconEntry = archive.Entries.FirstOrDefault(e =>
+                e.FullName.Equals(iconPath, StringComparison.OrdinalIgnoreCase)
+                || e.FullName.EndsWith("/" + iconPath, StringComparison.OrdinalIgnoreCase));
+            if (iconEntry == null)
+                return null;
+
+            using var iconStream = iconEntry.Open();
+            using var ms = new MemoryStream();
+            iconStream.CopyTo(ms);
+            var bytes = ms.ToArray();
+            if (bytes.Length == 0 || bytes.Length > 1024 * 1024)
+                return null;
+
+            // 根据扩展名推断 MIME
+            var mime = iconPath.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ? "image/webp"
+                : iconPath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || iconPath.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg"
+                : "image/png";
+
+            return $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>切换 mod 启用/禁用状态</summary>
@@ -164,4 +244,6 @@ public class ModInfo
     public string SizeText { get; set; } = "";
     public bool Enabled { get; set; }
     public string LastModified { get; set; } = "";
+    /// <summary>Mod 图标 (base64 data URL)，无图标时为 null</summary>
+    public string? IconDataUrl { get; set; }
 }

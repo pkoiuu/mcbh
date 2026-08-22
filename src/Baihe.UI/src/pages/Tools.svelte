@@ -8,6 +8,7 @@
   import { ipc } from '../lib/ipc'
   import { toast } from '../lib/toast.svelte'
   import { router } from '../lib/router.svelte'
+  import ShadersPanel from '../components/ShadersPanel.svelte'
 
   // ===== 类型定义 =====
 
@@ -18,20 +19,7 @@
     sizeText: string
     enabled: boolean
     lastModified: string
-  }
-
-  interface SaveItem {
-    name: string
-    lastModified: string
-    folderSize: number
-    sizeText: string
-    hasLevelData: boolean
-  }
-
-  interface BackupItem {
-    fileName: string
-    sizeText: string
-    createdTime: string
+    iconDataUrl?: string | null
   }
 
   interface ScreenshotItem {
@@ -54,13 +42,13 @@
     details: RepairDetail[]
   }
 
-  type TabId = 'mods' | 'saves' | 'screenshots' | 'repair' | 'chat'
+  type TabId = 'mods' | 'shaders' | 'screenshots' | 'repair' | 'chat'
 
   // ===== Tab 配置 =====
 
   const tabs: { id: TabId; name: string; icon: string }[] = [
     { id: 'mods', name: 'Mod管理', icon: 'package' },
-    { id: 'saves', name: '存档备份', icon: 'box' },
+    { id: 'shaders', name: '光影', icon: 'palette' },
     { id: 'screenshots', name: '截图管理', icon: 'grip' },
     { id: 'repair', name: '游戏修复', icon: 'info' },
     { id: 'chat', name: '聊天', icon: 'message-circle' },
@@ -77,12 +65,6 @@
   let mods = $state<ModItem[]>([])
   let modsLoading = $state(false)
   let modActionLoading = $state<string | null>(null)
-
-  // 存档备份状态
-  let saves = $state<SaveItem[]>([])
-  let backups = $state<BackupItem[]>([])
-  let savesLoading = $state(false)
-  let saveActionLoading = $state<string | null>(null)
 
   // 截图管理状态
   let screenshots = $state<ScreenshotItem[]>([])
@@ -103,14 +85,6 @@
     return 'file:///' + normalized
   }
 
-  /** 从备份文件名中提取存档名 */
-  function extractSaveName(backupFileName: string): string {
-    let name = backupFileName.replace(/\.zip$/i, '')
-    name = name.replace(/[_-]backup[_-]?.*$/i, '')
-    name = name.replace(/[_-]\d{4}[-_]?\d{2}[-_]?\d{2}.*$/i, '')
-    return name || backupFileName.replace(/\.zip$/i, '')
-  }
-
   /** 截图加载失败时记录 */
   function handleImageError(fileName: string): void {
     failedImages = new Set([...failedImages, fileName])
@@ -128,25 +102,6 @@
       mods = []
     } finally {
       modsLoading = false
-    }
-  }
-
-  /** 加载存档列表和备份列表 */
-  async function loadSavesData(): Promise<void> {
-    savesLoading = true
-    try {
-      const [savesResult, backupsResult] = await Promise.all([
-        ipc<SaveItem[]>('saves.list'),
-        ipc<BackupItem[]>('saves.backups'),
-      ])
-      saves = savesResult
-      backups = backupsResult
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '加载存档数据失败')
-      saves = []
-      backups = []
-    } finally {
-      savesLoading = false
     }
   }
 
@@ -213,72 +168,6 @@
     }
   }
 
-  // ===== 存档备份操作 =====
-
-  /** 备份指定存档 */
-  async function backupSave(saveName: string): Promise<void> {
-    if (saveActionLoading) return
-    saveActionLoading = saveName
-    try {
-      const result = await ipc<{ success: boolean; backupName: string; sizeText: string }>(
-        'saves.backup',
-        saveName,
-      )
-      if (result.success) {
-        toast.success(`备份成功: ${result.backupName}`)
-        await loadSavesData()
-      } else {
-        toast.error('备份失败')
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '备份失败')
-    } finally {
-      saveActionLoading = null
-    }
-  }
-
-  /** 从备份恢复存档 */
-  async function restoreBackup(backupFileName: string): Promise<void> {
-    if (saveActionLoading) return
-    saveActionLoading = backupFileName
-    try {
-      const saveName = extractSaveName(backupFileName)
-      const result = await ipc<{ success: boolean; saveName: string }>('saves.restore', {
-        backupFileName,
-        saveName,
-      })
-      if (result.success) {
-        toast.success(`存档 "${result.saveName}" 已恢复`)
-        await loadSavesData()
-      } else {
-        toast.error('恢复失败')
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '恢复失败')
-    } finally {
-      saveActionLoading = null
-    }
-  }
-
-  /** 删除备份文件 */
-  async function deleteBackup(fileName: string): Promise<void> {
-    if (saveActionLoading) return
-    saveActionLoading = fileName
-    try {
-      const result = await ipc<{ success: boolean }>('saves.deleteBackup', fileName)
-      if (result.success) {
-        backups = backups.filter((b) => b.fileName !== fileName)
-        toast.success('备份已删除')
-      } else {
-        toast.error('删除失败')
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '删除失败')
-    } finally {
-      saveActionLoading = null
-    }
-  }
-
   // ===== 截图管理操作 =====
 
   /** 打开截图文件夹 */
@@ -315,15 +204,10 @@
 
   // ===== 导航与 Tab 切换 =====
 
-  /** 新建实例 — 跳转到下载页面 */
+  /** 新建实例 — 跳转到下载页面（下载已移入开发者选项，仍保留入口） */
   function handleNewInstance(): void {
     router.navigate('download')
-    toast.show('正在跳转到下载页面')
-  }
-
-  /** 导入存档 — 提示用户在存档备份页面操作 */
-  function handleImportSave(): void {
-    toast.show('请在存档备份页面操作')
+    toast.show('正在跳转到版本下载')
   }
 
   /** 切换 Tab 并按需加载数据 */
@@ -331,7 +215,6 @@
     if (activeTab === tabId) return
     activeTab = tabId
     if (tabId === 'mods') loadMods()
-    else if (tabId === 'saves') loadSavesData()
     else if (tabId === 'screenshots') loadScreenshots()
   }
 
@@ -471,14 +354,6 @@
           <Icon name="plus" size={16} />
           <span>新建实例</span>
         </button>
-        <button
-          type="button"
-          class="inline-flex h-9 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)]"
-          onclick={handleImportSave}
-        >
-          <Icon name="upload" size={16} />
-          <span>导入存档</span>
-        </button>
       </div>
     </section>
 
@@ -551,9 +426,13 @@
                 >
                   <!-- Mod 图标 -->
                   <div
-                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] {mod.enabled ? 'bg-[var(--accent)] text-[var(--primary)]' : 'text-[var(--muted-foreground)]'}"
+                    class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[10px] {mod.enabled ? 'bg-[var(--accent)]' : 'bg-[var(--muted)] opacity-60'}"
                   >
-                    <Icon name="package" size={20} />
+                    {#if mod.iconDataUrl}
+                      <img src={mod.iconDataUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+                    {:else}
+                      <Icon name="package" size={20} class={mod.enabled ? 'text-[var(--primary)]' : 'text-[var(--muted-foreground)]'} />
+                    {/if}
                   </div>
 
                   <!-- Mod 信息 -->
@@ -611,123 +490,9 @@
           {/if}
         </div>
 
-      {:else if activeTab === 'saves'}
-        <!-- ===== 存档备份 Tab ===== -->
-        <div class="flex flex-col gap-6">
-          {#if savesLoading}
-            <div class="flex items-center justify-center py-16">
-              <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-[var(--primary)] border-t-transparent" aria-hidden="true"></span>
-              <span class="ml-3 text-[14px] text-[var(--muted-foreground)]">加载中...</span>
-            </div>
-          {:else}
-            <!-- 区域 1: 存档列表 -->
-            <div class="rounded-[1rem] border border-[var(--border)] bg-[var(--card)] p-5">
-              <div class="mb-4 flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[var(--primary)]">
-                  <Icon name="box" size={16} />
-                </div>
-                <h2 class="text-[15px] font-semibold text-[var(--foreground)]">存档列表</h2>
-                <span class="text-[13px] text-[var(--muted-foreground)]">({saves.length})</span>
-              </div>
-
-              {#if saves.length === 0}
-                <div class="py-10 text-center">
-                  <p class="text-[14px] text-[var(--muted-foreground)]">暂无游戏存档</p>
-                  <p class="mt-1 text-[12px] text-[var(--muted-foreground)]">启动游戏后会自动创建存档</p>
-                </div>
-              {:else}
-                <div class="flex flex-col gap-2">
-                  {#each saves as save (save.name)}
-                    <div class="flex items-center gap-4 rounded-[0.75rem] border border-[var(--border)] bg-[var(--background)] p-3.5">
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate text-[14px] font-medium text-[var(--foreground)]">{save.name}</div>
-                        <div class="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">
-                          <span style="font-family: var(--font-mono);">{save.sizeText}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{save.lastModified || '—'}</span>
-                          {#if !save.hasLevelData}
-                            <span aria-hidden="true">·</span>
-                            <span class="text-[var(--destructive)]">无关卡数据</span>
-                          {/if}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={saveActionLoading === save.name}
-                        class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[0.5rem] bg-[var(--primary)] px-3 text-[12px] font-medium text-[var(--primary-foreground)] transition-[filter] hover:brightness-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
-                        onclick={() => backupSave(save.name)}
-                      >
-                        {#if saveActionLoading === save.name}
-                          <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--primary-foreground)] border-t-transparent" aria-hidden="true"></span>
-                        {:else}
-                          <Icon name="download" size={14} />
-                        {/if}
-                        <span>备份</span>
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-
-            <!-- 区域 2: 已有备份列表 -->
-            <div class="rounded-[1rem] border border-[var(--border)] bg-[var(--card)] p-5">
-              <div class="mb-4 flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[var(--primary)]">
-                  <Icon name="upload" size={16} />
-                </div>
-                <h2 class="text-[15px] font-semibold text-[var(--foreground)]">已有备份</h2>
-                <span class="text-[13px] text-[var(--muted-foreground)]">({backups.length})</span>
-              </div>
-
-              {#if backups.length === 0}
-                <div class="py-10 text-center">
-                  <p class="text-[14px] text-[var(--muted-foreground)]">暂无备份文件</p>
-                  <p class="mt-1 text-[12px] text-[var(--muted-foreground)]">在上方存档列表中点击"备份"按钮创建</p>
-                </div>
-              {:else}
-                <div class="flex flex-col gap-2">
-                  {#each backups as backup (backup.fileName)}
-                    <div class="flex items-center gap-4 rounded-[0.75rem] border border-[var(--border)] bg-[var(--background)] p-3.5">
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate text-[14px] font-medium text-[var(--foreground)]" title={backup.fileName}>
-                          {backup.fileName}
-                        </div>
-                        <div class="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">
-                          <span style="font-family: var(--font-mono);">{backup.sizeText}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{backup.createdTime || '—'}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={saveActionLoading === backup.fileName}
-                        class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[0.5rem] border border-[var(--border)] bg-[var(--card)] px-3 text-[12px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                        onclick={() => restoreBackup(backup.fileName)}
-                      >
-                        {#if saveActionLoading === backup.fileName}
-                          <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--muted-foreground)] border-t-transparent" aria-hidden="true"></span>
-                        {:else}
-                          <Icon name="upload" size={14} />
-                        {/if}
-                        <span>恢复</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="删除此备份"
-                        disabled={saveActionLoading === backup.fileName}
-                        class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-[0.5rem] text-[var(--muted-foreground)] transition-[background-color,color] hover:bg-[var(--destructive)] hover:text-[var(--destructive-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
-                        onclick={() => deleteBackup(backup.fileName)}
-                      >
-                        {@render TrashIcon(14)}
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
+      {:else if activeTab === 'shaders'}
+        <!-- ===== 光影管理 Tab ===== -->
+        <ShadersPanel />
 
       {:else if activeTab === 'screenshots'}
         <!-- ===== 截图管理 Tab ===== -->

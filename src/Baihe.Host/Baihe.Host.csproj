@@ -7,8 +7,8 @@
         <Company>白鹤服务器</Company>
         <Product>Baihe.Host</Product>
         <Copyright>Copyright © PCL Community 2026, 白鹤服务器</Copyright>
-        <AssemblyVersion>1.1.2.0</AssemblyVersion>
-        <FileVersion>1.1.2.0</FileVersion>
+        <AssemblyVersion>1.1.3.0</AssemblyVersion>
+        <FileVersion>1.1.3.0</FileVersion>
     </PropertyGroup>
     <PropertyGroup>
         <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
@@ -101,6 +101,7 @@
         <Compile Include="Services\UpdateService.cs" />
         <Compile Include="Services\TelemetryService.cs" />
         <Compile Include="Services\WeChatService.cs" />
+        <Compile Include="Services\ShaderService.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

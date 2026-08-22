@@ -203,7 +203,8 @@ jobs:
             - Java 21 JRE (20 模块，jlink 最小化构建，含 java.compiler + jdk.unsupported)
             - WebView2 Runtime 离线安装程序
             - Minecraft 1.21.8 + Fabric Loader (最新稳定版)
-            - 10 个预装模组 (钠、玉、苹果皮、Xaero小地图等)
+            - 12 个预装模组 (钠、玉、苹果皮、Xaero小地图、Iris 等)
+            - 4 个预装光影包 (Complementary、BSL、Sildur's、MakeUp)
             - 3985+ 个资源文件 (assets/objects)
             - 113 个库文件 (含原生库)
             - 全量模组配置文件

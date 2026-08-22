@@ -10,6 +10,7 @@
   import { router } from '../lib/router.svelte'
   import { theme } from '../lib/theme.svelte'
   import defaultAvatar from '../assets/default-avatar.png'
+  import SaveManager from '../components/SaveManager.svelte'
 
   // 设置分类
   type SettingsCategory = 'account' | 'game' | 'appearance' | 'about' | 'developer'
@@ -340,6 +341,11 @@
   function toggleChat(): void {
     chatEnabled = !chatEnabled
     localStorage.setItem('baihe_chat_enabled', String(chatEnabled))
+  }
+
+  /** 跳转到版本下载页（开发者入口） */
+  function goDownload(): void {
+    router.navigate('download')
   }
 
   // 组件挂载时加载数据
@@ -677,6 +683,32 @@
                     <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
                       style="transform: translateX({chatEnabled ? '22px' : '2px'});"></span>
                   </button>
+                </div>
+
+                <!-- 版本下载（从主导航移入开发者选项） -->
+                <div class="flex items-center justify-between py-3">
+                  <div>
+                    <span class="text-sm font-medium text-[var(--foreground)]">版本下载</span>
+                    <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">下载 Minecraft 版本与 Fabric（开发者功能）</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="rounded-[0.5rem] border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)]"
+                    onclick={goDownload}
+                  >
+                    打开下载页 &rarr;
+                  </button>
+                </div>
+
+                <!-- 存档备份（从工具页移入开发者选项） -->
+                <div class="py-3">
+                  <div class="mb-3 flex items-center justify-between">
+                    <div>
+                      <span class="text-sm font-medium text-[var(--foreground)]">存档备份</span>
+                      <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">备份、导入、恢复游戏存档（开发者功能）</p>
+                    </div>
+                  </div>
+                  <SaveManager />
                 </div>
               </div>
             {/if}

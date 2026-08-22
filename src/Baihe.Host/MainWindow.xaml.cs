@@ -180,7 +180,7 @@ public partial class MainWindow : Window
         _ipcRouter.Register("app.getVersion", _ =>
         {
             var assembly = Assembly.GetExecutingAssembly();
-            var version = "1.1.2";
+            var version = "1.1.3";
 
             // 优先从 AssemblyFileVersion 读取（Release 构建通过 -p:FileVersion 注入）
             var fileVer = assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();
@@ -529,6 +529,39 @@ public partial class MainWindow : Window
                 return await SaveService.RestoreBackup(backupFileName, saveName);
             }
             return new { success = false, error = "参数错误" };
+        });
+
+        // ===== 光影管理 (ShaderService) =====
+
+        _ipcRouter.Register("shaders.list", async _ =>
+        {
+            return await ShaderService.ListShaders();
+        });
+
+        _ipcRouter.Register("shaders.enable", async args =>
+        {
+            var fileName = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString() ?? "" : "";
+            return await ShaderService.EnableShader(fileName);
+        });
+
+        // 关闭光影 — 设置 enableShaders=false
+        _ipcRouter.Register("shaders.disable", async _ =>
+        {
+            return await ShaderService.DisableShaders();
+        });
+
+        _ipcRouter.Register("shaders.delete", async args =>
+        {
+            var fileName = args?.ValueKind == JsonValueKind.String
+                ? args.Value.GetString() ?? "" : "";
+            return await ShaderService.DeleteShader(fileName);
+        });
+
+        _ipcRouter.Register("shaders.openFolder", async _ =>
+        {
+            var path = await ShaderService.OpenShadersFolder();
+            return new { success = true, path };
         });
 
         // 截图管理

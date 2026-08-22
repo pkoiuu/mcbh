@@ -26,6 +26,7 @@
   let username = $state('未设置')
   let authMethod = $state('离线模式')
   let avatarData = $state<string | null>(null)
+  let appVersion = $state('1.1.2')
 
   /** 加载账户信息 — 参照 PCL CE McLogin，从后端获取当前登录用户 */
   async function loadAccount(): Promise<void> {
@@ -44,6 +45,15 @@
     }
   }
 
+  /** 加载版本号 — 从后端动态获取，避免与 csproj 版本不同步 */
+  async function loadVersion(): Promise<void> {
+    try {
+      appVersion = await ipc<string>('app.getVersion')
+    } catch {
+      // IPC 不可用时保持默认值
+    }
+  }
+
   /** 加载头像 — 从 localStorage 读取，无则使用默认头像 */
   function loadAvatar(): void {
     try {
@@ -57,6 +67,7 @@
     loadAccount()
     loadAvatar()
   })
+  loadVersion()
 </script>
 
 <aside
@@ -106,7 +117,7 @@
   <!-- 底部版本号 -->
   <div class="mt-auto pt-3">
     <div class="text-xs text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">
-      白鹤服务器 v1.1.1
+      白鹤服务器 v{appVersion}
     </div>
   </div>
 </aside>

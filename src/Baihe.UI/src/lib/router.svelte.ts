@@ -25,10 +25,9 @@ class RouterState {
 /** 全局路由单例 */
 export const router = new RouterState()
 
-/** 导航项配置 */
+/** 导航项配置 — 下载页已移入设置页开发者选项，不在主导航显示 */
 export const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: 'home', label: '启动', icon: 'circle-play' },
-  { key: 'download', label: '下载', icon: 'arrow-down' },
   { key: 'settings', label: '设置', icon: 'grip' },
   { key: 'tools', label: '工具', icon: 'box' },
 ]

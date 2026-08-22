@@ -7,7 +7,7 @@
 ; ============================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.2"
+  #define MyAppVersion "1.1.3"
 #endif
 
 [Setup]
@@ -87,6 +87,9 @@ Source: "..\dist\.minecraft\assets\*"; DestDir: "{app}\.minecraft\assets"; Flags
 
 ; 预装 Mod (mods/) — 更新到最新版本（用户自添加的 mod 不受影响）
 Source: "..\dist\.minecraft\mods\*"; DestDir: "{app}\.minecraft\mods"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; 预装光影包 (shaderpacks/) — 始终更新（用户自添加的光影不受影响）
+Source: "..\dist\.minecraft\shaderpacks\*"; DestDir: "{app}\.minecraft\shaderpacks"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ===== .minecraft 用户数据 — 仅首次安装时写入，升级/卸载时均保留用户已有配置 =====
 ; 注意: onlyifdoesntexist 控制安装时不覆盖已有文件
