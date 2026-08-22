@@ -36,6 +36,9 @@ public static class LaunchService
     private static string _stateMessage = string.Empty;
     private static int? _processId;
 
+    /// <summary>启动状态锁 — 保护入口检查/GetStatus/终态写入的并发安全</summary>
+    private static readonly object _stateLock = new();
+
     /// <summary>
     /// 启动游戏
     /// </summary>
@@ -44,9 +47,13 @@ public static class LaunchService
     /// <param name="settings">启动器设置，为 null 时自动加载</param>
     public static async Task<object> Launch(string instanceId, OfflineAccount account, LauncherSettings? settings = null)
     {
-        if (_state == LaunchState.Running || _state == LaunchState.Launching)
+        // 原子检查，避免并发 launch.start 同时通过
+        lock (_stateLock)
         {
-            return new { success = false, error = "游戏正在运行中" };
+            if (_state == LaunchState.Running || _state == LaunchState.Launching)
+            {
+                return new { success = false, error = "游戏正在运行中" };
+            }
         }
 
         try
@@ -145,6 +152,16 @@ public static class LaunchService
                 // 添加失败不影响启动
             }
 
+            // 清理 launcher_profiles.json 中残留的开发期 gameDir（旧版安装包遗留），避免路径泄漏
+            try
+            {
+                CleanLauncherProfilesGameDir(mcDir);
+            }
+            catch
+            {
+                // 清理失败不影响启动
+            }
+
             // 13. 启动进程
             _state = LaunchState.Launching;
             _stateMessage = "正在启动游戏...";
@@ -230,8 +247,11 @@ public static class LaunchService
                 process.WaitForExit();
                 var exitCode = process.ExitCode;
                 var stderr = stderrBuilder.ToString();
-                _state = LaunchState.Idle;
-                _stateMessage = exitCode == 0 ? "游戏已退出" : $"游戏异常退出 (code: {exitCode})";
+                lock (_stateLock)
+                {
+                    _state = LaunchState.Idle;
+                    _stateMessage = exitCode == 0 ? "游戏已退出" : $"游戏异常退出 (code: {exitCode})";
+                }
 
                 // 将错误输出写入日志文件，方便诊断
                 if (exitCode != 0 && !string.IsNullOrEmpty(stderr))
@@ -244,7 +264,7 @@ public static class LaunchService
                     catch { }
                 }
 
-                _processId = null;
+                lock (_stateLock) { _processId = null; }
                 IpcRouter.PushEvent("launch.exited", new
                 {
                     exitCode,
@@ -264,8 +284,11 @@ public static class LaunchService
         }
         catch (Exception ex)
         {
-            _state = LaunchState.Idle;
-            _stateMessage = $"启动失败: {ex.Message}";
+            lock (_stateLock)
+            {
+                _state = LaunchState.Idle;
+                _stateMessage = $"启动失败: {ex.Message}";
+            }
             IpcRouter.PushEvent("launch.state", new { state = "error", message = ex.Message });
             return new { success = false, error = ex.Message };
         }
@@ -289,12 +312,15 @@ public static class LaunchService
     /// </summary>
     public static object GetStatus()
     {
-        return new
+        lock (_stateLock)
         {
-            state = _state.ToString().ToLowerInvariant(),
-            message = _stateMessage,
-            processId = _processId,
-        };
+            return new
+            {
+                state = _state.ToString().ToLowerInvariant(),
+                message = _stateMessage,
+                processId = _processId,
+            };
+        }
     }
 
     // =========================================================================
@@ -454,6 +480,53 @@ public static class LaunchService
         if (parts.Length >= 2)
             return $"{parts[0]}:{parts[1]}"; // groupId:artifactId (无 classifier)
         return name;
+    }
+
+    /// <summary>
+    /// 清理 launcher_profiles.json 中残留的开发期 gameDir 字段
+    /// 旧版安装包遗留的 launcher_profiles.json 含 gameDir=d:\...（开发路径泄漏），
+    /// 本启动器不使用该字段，仅用于「最后游玩时间」展示；移除 dev 路径避免误导与泄漏
+    /// </summary>
+    private static void CleanLauncherProfilesGameDir(string mcDir)
+    {
+        var profilesPath = Path.Combine(mcDir, "launcher_profiles.json");
+        if (!File.Exists(profilesPath))
+            return;
+
+        var json = File.ReadAllText(profilesPath);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("profiles", out var profiles)
+            || profiles.ValueKind != System.Text.Json.JsonValueKind.Object)
+            return;
+
+        // 序列化为可修改的 JsonObject
+        var root = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
+        if (root == null || root["profiles"] is not System.Text.Json.Nodes.JsonObject profilesObj)
+            return;
+
+        var changed = false;
+        foreach (var prop in profilesObj.ToList())
+        {
+            if (prop.Value is System.Text.Json.Nodes.JsonObject profile
+                && profile["gameDir"] is System.Text.Json.Nodes.JsonValue gameDirValue)
+            {
+                var dir = gameDirValue.GetValue<string>();
+                // 移除指向开发目录的 gameDir（含 installer_resources 或盘符根下 github 路径）
+                if (!string.IsNullOrEmpty(dir)
+                    && (dir.Contains("installer_resources", StringComparison.OrdinalIgnoreCase)
+                        || dir.Contains("\\github", StringComparison.OrdinalIgnoreCase)
+                        || dir.Contains("/github", StringComparison.OrdinalIgnoreCase)))
+                {
+                    profile.Remove("gameDir");
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            File.WriteAllText(profilesPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        }
     }
 
     /// <summary>
@@ -679,7 +752,7 @@ public static class LaunchService
                     continue;
 
                 // 检查 rules 是否允许当前平台
-                if (!CheckRules(lib["rules"]))
+                if (!MinecraftRules.Check(lib["rules"]))
                     continue;
 
                 // 从 downloads.artifact.path 获取 jar 路径
@@ -794,7 +867,7 @@ public static class LaunchService
                     continue;
 
                 // 检查 rules 是否匹配当前平台
-                if (!CheckRules(lib["rules"]))
+                if (!MinecraftRules.Check(lib["rules"]))
                     continue;
 
                 // 获取库文件路径
@@ -864,51 +937,8 @@ public static class LaunchService
     }
 
     // =========================================================================
-    // Rules 检查
+    // Rules 检查 — 统一实现见 MinecraftRules（Windows 平台语义）
     // =========================================================================
-
-    /// <summary>
-    /// 检查 rules 是否匹配当前平台 (Windows)
-    /// rules 格式: [{"action": "allow", "os": {"name": "windows"}}, ...]
-    /// - 没有 rules 默认允许
-    /// - 有 os 字段的 rule 只在平台匹配时生效
-    /// - 没有 os 字段的 rule 对所有平台生效
-    /// </summary>
-    private static bool CheckRules(JsonNode? rulesNode)
-    {
-        if (rulesNode is not JsonArray rules)
-            return true; // 没有 rules 默认允许
-
-        var allowed = true; // 默认允许
-
-        foreach (var ruleNode in rules)
-        {
-            if (ruleNode is not JsonObject rule)
-                continue;
-
-            var action = rule["action"]?.GetValue<string>() ?? "allow";
-
-            if (rule["os"] is JsonObject os)
-            {
-                var osName = os["name"]?.GetValue<string>() ?? "";
-                var isCurrentPlatform = osName == "windows";
-
-                if (isCurrentPlatform)
-                {
-                    // 当前平台匹配，应用 action
-                    allowed = action == "allow";
-                }
-                // 当前平台不匹配，不修改 allowed
-            }
-            else
-            {
-                // 没有平台限制，直接应用 action
-                allowed = action == "allow";
-            }
-        }
-
-        return allowed;
-    }
 
     // =========================================================================
     // Log4j 配置

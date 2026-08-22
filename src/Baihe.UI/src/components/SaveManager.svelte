@@ -25,6 +25,9 @@
   let backups = $state<BackupItem[]>([])
   let loading = $state(false)
   let actionLoading = $state<string | null>(null)
+  /** 待二次确认恢复的备份文件名 */
+  let confirmRestore = $state<string | null>(null)
+  let confirmTimer: ReturnType<typeof setTimeout> | null = null
 
   /** 从备份文件名中提取存档名 */
   function extractSaveName(backupFileName: string): string {
@@ -72,10 +75,25 @@
     }
   }
 
+  /** 恢复存档 — 内联二次确认（先点「恢复」变「确认？」，再点执行，3s 未点自动恢复） */
+  function requestRestore(backupFileName: string): void {
+    if (confirmRestore === backupFileName) {
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmRestore = null
+      doRestore(backupFileName)
+    } else {
+      confirmRestore = backupFileName
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmTimer = setTimeout(() => {
+        confirmRestore = null
+        confirmTimer = null
+      }, 3000)
+    }
+  }
+
   /** 从备份恢复存档 */
-  async function restoreBackup(backupFileName: string): Promise<void> {
+  async function doRestore(backupFileName: string): Promise<void> {
     if (actionLoading) return
-    if (!confirm(`确定从「${backupFileName}」恢复存档吗？当前同名存档会被移走。`)) return
     actionLoading = backupFileName
     try {
       const saveName = extractSaveName(backupFileName)
@@ -205,15 +223,17 @@
               <button
                 type="button"
                 disabled={actionLoading === backup.fileName}
-                class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[0.5rem] border border-[var(--border)] bg-[var(--card)] px-3 text-[11px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                onclick={() => restoreBackup(backup.fileName)}
+                class="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[0.5rem] px-3 text-[11px] font-medium transition-[background-color] disabled:cursor-not-allowed disabled:opacity-50 {confirmRestore === backup.fileName ? 'bg-[var(--destructive)] text-[var(--destructive-foreground)]' : 'border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--accent)]'}"
+                onclick={() => requestRestore(backup.fileName)}
               >
                 {#if actionLoading === backup.fileName}
                   <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--muted-foreground)] border-t-transparent" aria-hidden="true"></span>
+                {:else if confirmRestore === backup.fileName}
+                  <span>确认？</span>
                 {:else}
                   <Icon name="upload" size={12} />
                 {/if}
-                <span>恢复</span>
+                <span>{confirmRestore === backup.fileName ? '' : '恢复'}</span>
               </button>
               <button
                 type="button"

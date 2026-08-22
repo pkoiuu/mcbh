@@ -33,16 +33,22 @@ public static class DownloadService
     private static bool _isDownloading;
     private static string _error = string.Empty;
 
+    /// <summary>下载状态锁 — 保护 _isDownloading/_error 的并发读写</summary>
+    private static readonly object _stateLock = new();
+
     /// <summary>
     /// 下载完整版本 — 版本 JSON + 客户端 JAR + 库文件 + 资源文件
     /// </summary>
     public static async Task<object> DownloadVersion(string versionId)
     {
-        if (_isDownloading)
-            return new { success = false, error = "已有下载任务在进行中" };
-
-        _isDownloading = true;
-        _error = string.Empty;
+        // 原子检查-设置，避免两个下载请求并发都通过检查
+        lock (_stateLock)
+        {
+            if (_isDownloading)
+                return new { success = false, error = "已有下载任务在进行中" };
+            _isDownloading = true;
+            _error = string.Empty;
+        }
 
         try
         {
@@ -84,13 +90,13 @@ public static class DownloadService
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            lock (_stateLock) { _error = ex.Message; }
             PushError(ex.Message);
             return new { success = false, error = ex.Message };
         }
         finally
         {
-            _isDownloading = false;
+            lock (_stateLock) { _isDownloading = false; }
         }
     }
 
@@ -99,11 +105,14 @@ public static class DownloadService
     /// </summary>
     public static async Task<object> DownloadVersionFromJson(string versionId, string versionJson)
     {
-        if (_isDownloading)
-            return new { success = false, error = "已有下载任务在进行中" };
-
-        _isDownloading = true;
-        _error = string.Empty;
+        // 原子检查-设置
+        lock (_stateLock)
+        {
+            if (_isDownloading)
+                return new { success = false, error = "已有下载任务在进行中" };
+            _isDownloading = true;
+            _error = string.Empty;
+        }
 
         try
         {
@@ -135,13 +144,13 @@ public static class DownloadService
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            lock (_stateLock) { _error = ex.Message; }
             PushError(ex.Message);
             return new { success = false, error = ex.Message };
         }
         finally
         {
-            _isDownloading = false;
+            lock (_stateLock) { _isDownloading = false; }
         }
     }
 
@@ -181,7 +190,7 @@ public static class DownloadService
             // 检查 rules
             if (lib.TryGetProperty("rules", out var rules))
             {
-                if (!CheckRules(rules))
+                if (!MinecraftRules.Check(rules))
                     continue;
             }
 
@@ -416,42 +425,24 @@ public static class DownloadService
     }
 
     /// <summary>
-    /// 检查 rules 是否匹配当前平台
-    /// </summary>
-    private static bool CheckRules(JsonElement rules)
-    {
-        var allowed = true;
-
-        foreach (var rule in rules.EnumerateArray())
-        {
-            var action = rule.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : "allow";
-
-            if (rule.TryGetProperty("os", out var os))
-            {
-                var osName = os.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : "";
-                var isWindows = osName == "windows";
-
-                if (action == "allow")
-                    allowed = isWindows;
-                else
-                    allowed = !isWindows;
-            }
-        }
-
-        return allowed;
-    }
-
-    /// <summary>
     /// 格式化文件大小
     /// </summary>
     private static string FormatSize(long bytes) => FormatHelper.FormatSize(bytes);
 
     /// <summary>
-    /// 推送下载进度事件
+    /// 推送下载进度事件 — percent 优先按字节计算（大文件时更准确），无字节信息时按文件数
     /// </summary>
     private static void PushProgress(string phase, string currentFile, int completedFiles, int totalFiles, long downloadedBytes, long totalBytes)
     {
-        var percent = totalFiles > 0 ? (double)completedFiles / totalFiles * 100 : 0;
+        double percent;
+        if (totalBytes > 0)
+        {
+            percent = (double)downloadedBytes / totalBytes * 100;
+        }
+        else
+        {
+            percent = totalFiles > 0 ? (double)completedFiles / totalFiles * 100 : 0;
+        }
         IpcRouter.PushEvent("download.progress", new
         {
             phase,
@@ -485,6 +476,9 @@ public static class DownloadService
     /// </summary>
     public static object GetStatus()
     {
-        return new { isDownloading = _isDownloading, error = _error };
+        lock (_stateLock)
+        {
+            return new { isDownloading = _isDownloading, error = _error };
+        }
     }
 }

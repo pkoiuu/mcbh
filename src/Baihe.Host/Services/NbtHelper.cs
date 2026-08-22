@@ -458,9 +458,9 @@ public static class NbtHelper
                 Span<byte> lenBuf = stackalloc byte[4];
                 BinaryPrimitives.WriteInt32BigEndian(lenBuf, t.Value.Length);
                 ms.Write(lenBuf);
+                Span<byte> buf = stackalloc byte[4];
                 foreach (var v in t.Value)
                 {
-                    Span<byte> buf = stackalloc byte[4];
                     BinaryPrimitives.WriteInt32BigEndian(buf, v);
                     ms.Write(buf);
                 }
@@ -471,9 +471,9 @@ public static class NbtHelper
                 Span<byte> lenBuf = stackalloc byte[4];
                 BinaryPrimitives.WriteInt32BigEndian(lenBuf, t.Value.Length);
                 ms.Write(lenBuf);
+                Span<byte> buf = stackalloc byte[8];
                 foreach (var v in t.Value)
                 {
-                    Span<byte> buf = stackalloc byte[8];
                     BinaryPrimitives.WriteInt64BigEndian(buf, v);
                     ms.Write(buf);
                 }

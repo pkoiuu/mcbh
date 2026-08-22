@@ -70,6 +70,7 @@
     <ItemGroup>
         <Compile Include="App.xaml.cs" />
         <Compile Include="MainWindow.xaml.cs" />
+        <Compile Include="MainWindow.Chat.cs" />
         <Compile Include="Chrome\TitleBar.xaml.cs" />
         <Compile Include="Ipc\IpcMessage.cs" />
         <Compile Include="Ipc\IpcRouter.cs" />
@@ -104,6 +105,7 @@
         <Compile Include="Services\ShaderService.cs" />
         <Compile Include="Services\NbtHelper.cs" />
         <Compile Include="Services\ServerListService.cs" />
+        <Compile Include="Services\MinecraftRules.cs" />
     </ItemGroup>
     <!-- 前端资源: 复制 wwwroot 到输出目录，供 WebView2 加载 -->
     <ItemGroup>

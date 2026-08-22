@@ -68,6 +68,18 @@ public static class UpdateService
     /// <summary>缓存有效期</summary>
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
+    /// <summary>测速结果缓存 — 按真实下载 URL 缓存，避免频繁重测镜像</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SpeedProbeCache> SpeedCache = new();
+
+    /// <summary>测速结果缓存有效期（10 分钟）</summary>
+    private static readonly TimeSpan SpeedCacheTtl = TimeSpan.FromMinutes(10);
+
+    private sealed class SpeedProbeCache
+    {
+        public DateTime TimestampUtc;
+        public MirrorSpeedResult? Best;
+    }
+
     static UpdateService()
     {
         // GitHub API 要求设置 User-Agent
@@ -135,12 +147,12 @@ public static class UpdateService
                 }
             }
 
-            // 速度优先 — 对真实下载 URL 并行测速（早退），选最快镜像
+            // 速度优先 — 对真实下载 URL 并行测速（早退），选最快镜像；结果短缓存 10 分钟
             double speedMbps = 0;
             string source = "GitHub 直链";
             if (downloadUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
             {
-                var best = await PickFastestMirrorAsync(downloadUrl, mirrors);
+                var best = await PickFastestMirrorCachedAsync(downloadUrl, mirrors);
                 if (best != null)
                 {
                     downloadUrl = best.Url;
@@ -256,6 +268,32 @@ public static class UpdateService
         public string Url { get; init; } = "";
         public string MirrorHost { get; init; } = "";
         public double SpeedMbps { get; init; }
+    }
+
+    /// <summary>
+    /// 测速选择最快镜像（带缓存）— 10 分钟内同一 URL 的测速结果直接复用，
+    /// 避免每次检查更新（含 force）都重新下载 512KB 探测镜像
+    /// </summary>
+    private static async Task<MirrorSpeedResult?> PickFastestMirrorCachedAsync(string downloadUrl, List<string> mirrors)
+    {
+        // 缓存命中且新鲜 → 直接复用
+        if (SpeedCache.TryGetValue(downloadUrl, out var cached)
+            && DateTime.UtcNow - cached.TimestampUtc < SpeedCacheTtl
+            && cached.Best != null)
+        {
+            return cached.Best;
+        }
+
+        var best = await PickFastestMirrorAsync(downloadUrl, mirrors);
+        if (best != null)
+        {
+            SpeedCache[downloadUrl] = new SpeedProbeCache
+            {
+                TimestampUtc = DateTime.UtcNow,
+                Best = best,
+            };
+        }
+        return best;
     }
 
     /// <summary>

@@ -57,8 +57,9 @@ WizardImageFile=..\installer_assets\wizimage.bmp
 WizardSmallImageFile=..\installer_assets\wizsmallimage.bmp
 
 ; 输出 — 到仓库根目录的 dist/
+; 文件名使用 ASCII（GitHub runner 上中文名会丢失），安装包显示名仍为「白鹤服务器启动器」
 OutputDir=..\dist
-OutputBaseFilename=白鹤服务器启动器_Setup_v{#MyAppVersion}
+OutputBaseFilename=BaiheServer_Setup_v{#MyAppVersion}
 CloseApplications=no
 
 [Languages]

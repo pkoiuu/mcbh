@@ -14,6 +14,16 @@ namespace Baihe.Host.Services;
 
 public static class ModService
 {
+    /// <summary>Mod 图标缓存 — 按文件名缓存提取结果，文件 mtime/size 变化时失效</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedModIcon> IconCache = new();
+
+    private sealed class CachedModIcon
+    {
+        public DateTime LastWriteTimeUtc;
+        public long Length;
+        public string? IconDataUrl;
+    }
+
     /// <summary>获取 mods 目录路径 — 游戏实际加载的全局 mods 目录 (.minecraft/mods)</summary>
     private static string GetModsDir()
     {
@@ -45,8 +55,8 @@ public static class ModService
             };
             // 从文件名提取 mod 名称
             mod.DisplayName = ExtractModName(info.Name);
-            // 从 jar 内 fabric.mod.json 提取图标（base64 data URL）
-            mod.IconDataUrl = TryExtractModIcon(file);
+            // 从 jar 内 fabric.mod.json 提取图标（base64 data URL，带缓存）
+            mod.IconDataUrl = GetModIcon(file, info);
             mods.Add(mod);
         }
 
@@ -63,11 +73,35 @@ public static class ModService
                 LastModified = info.LastWriteTime.ToString("yyyy-MM-dd HH:mm"),
             };
             mod.DisplayName = ExtractModName(info.Name.Replace(".disabled", ""));
-            mod.IconDataUrl = TryExtractModIcon(file);
+            mod.IconDataUrl = GetModIcon(file, info);
             mods.Add(mod);
         }
 
         return mods;
+    }
+
+    /// <summary>
+    /// 获取 Mod 图标（带缓存）— 文件 mtime/size 未变化时复用缓存的提取结果，
+    /// 避免每次 mods.list 都解压 jar 读取 fabric.mod.json 与图标
+    /// </summary>
+    private static string? GetModIcon(string jarPath, FileInfo info)
+    {
+        // 缓存命中且文件未变化 → 直接返回
+        if (IconCache.TryGetValue(info.Name, out var cached)
+            && cached.LastWriteTimeUtc == info.LastWriteTimeUtc
+            && cached.Length == info.Length)
+        {
+            return cached.IconDataUrl;
+        }
+
+        var icon = TryExtractModIcon(jarPath);
+        IconCache[info.Name] = new CachedModIcon
+        {
+            LastWriteTimeUtc = info.LastWriteTimeUtc,
+            Length = info.Length,
+            IconDataUrl = icon,
+        };
+        return icon;
     }
 
     /// <summary>

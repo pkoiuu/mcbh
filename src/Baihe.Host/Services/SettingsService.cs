@@ -56,6 +56,9 @@ public static class SettingsService
     /// <summary>当前设置 (内存缓存)</summary>
     private static LauncherSettings? _cached;
 
+    /// <summary>设置缓存锁 — 保护 _cached 的并发读写</summary>
+    private static readonly object _cacheLock = new();
+
     // ===== 系统内存检测 (P/Invoke: GlobalMemoryStatusEx) =====
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -116,31 +119,34 @@ public static class SettingsService
     /// </summary>
     public static Task<LauncherSettings> GetAsync()
     {
-        if (_cached != null)
-            return Task.FromResult(_cached);
-
-        try
+        lock (_cacheLock)
         {
-            if (File.Exists(SettingsPath))
+            if (_cached != null)
+                return Task.FromResult(_cached);
+
+            try
             {
-                var json = File.ReadAllText(SettingsPath);
-                _cached = JsonSerializer.Deserialize<LauncherSettings>(json, JsonOptions) ?? new LauncherSettings();
-            }
-            else
-            {
-                _cached = new LauncherSettings
+                if (File.Exists(SettingsPath))
                 {
-                    MemoryMB = CalculateRecommendedMemory(GetTotalPhysicalMemoryMB())
-                };
-                SaveAsync(_cached).Wait();
+                    var json = File.ReadAllText(SettingsPath);
+                    _cached = JsonSerializer.Deserialize<LauncherSettings>(json, JsonOptions) ?? new LauncherSettings();
+                }
+                else
+                {
+                    _cached = new LauncherSettings
+                    {
+                        MemoryMB = CalculateRecommendedMemory(GetTotalPhysicalMemoryMB())
+                    };
+                    SaveAsync(_cached).Wait();
+                }
             }
-        }
-        catch
-        {
-            _cached = new LauncherSettings();
-        }
+            catch
+            {
+                _cached = new LauncherSettings();
+            }
 
-        return Task.FromResult(_cached);
+            return Task.FromResult(_cached);
+        }
     }
 
     /// <summary>
@@ -196,7 +202,7 @@ public static class SettingsService
     /// </summary>
     private static Task SaveAsync(LauncherSettings settings)
     {
-        _cached = settings;
+        lock (_cacheLock) { _cached = settings; }
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         return File.WriteAllTextAsync(SettingsPath, json);
     }

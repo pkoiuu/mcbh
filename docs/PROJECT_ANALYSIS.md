@@ -48,7 +48,7 @@ Baihe.slnx                        # 解决方案，仅引用 src/Baihe.Host（Co
 src/
 ├── Baihe.Host/                   # WPF 宿主进程（唯一 .NET 项目）
 │   ├── App.xaml(.cs)             # 应用入口（StartupUri 启动 MainWindow）
-│   ├── MainWindow.xaml(.cs)      # 主窗口：WebView2 初始化 + 全部 IPC 命令注册（核心中枢，约 960 行）
+│   ├── MainWindow.xaml(.cs)      # 主窗口：WebView2 初始化 + 全部 IPC 命令注册（partial 拆分: MainWindow.Chat.cs）
 │   ├── Chrome/TitleBar.xaml(.cs) # 原生标题栏 + 交通灯按钮
 │   ├── Ipc/                      # IpcMessage.cs + IpcRouter.cs（IPC 协议与路由）
 │   ├── Web/WebViewHost.cs        # WebView2 环境创建 + 虚拟主机映射
@@ -171,7 +171,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 
 | 服务 | 行数(约) | 职责 | 关键点 |
 |---|---|---|---|
-| MainWindow.xaml.cs | 960 | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands） |
+| MainWindow.xaml.cs | 719 + Chat partial | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands）；聊天注入在 MainWindow.Chat.cs |
 | LaunchService | 1113 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控 |
 | NbtHelper | — | Minecraft NBT 格式通用读写 | 大端序（BinaryPrimitives.*BigEndian）；servers.dat 未压缩 |
 | ServerListService | — | 自动把白鹤服务器加入 servers.dat | 启动游戏前调用；同 ip 条目自动改名「白鹤服务器」，幂等 |

@@ -31,27 +31,27 @@ scripts/                     # 构建脚本
 ### 本地构建
 
 ```powershell
-# 1. 构建前端
+# 1. 构建前端（Vite 直接输出到 ../Baihe.Host/wwwroot，无需手动复制）
 cd src/Baihe.UI
 pnpm install
 pnpm build
 cd ../..
 
-# 2. 复制前端到 Host assets
-Copy-Item src/Baihe.UI/build/* src/Baihe.Host/assets/ -Recurse -Force
-
-# 3. 构建后端
+# 2. 构建后端
 dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release
 
-# 4. 运行
+# 3. 运行
 dotnet run --project src/Baihe.Host/Baihe.Host.csproj
 ```
 
 ### 完整打包
 
 ```powershell
-# 一键构建安装包
-.\scripts\build-all.ps1
+# 打包安装包（需 7-Zip + Inno Setup 6 + Java 21 JDK 做 jlink）
+# 先更新内置游戏资源 installer_resources/.minecraft（如需要），再:
+#   1. 打包 .minecraft 为 7z 并上传到 v1.0-assets release:
+#      .\scripts\upload-minecraft-assets.ps1
+#   2. 打 tag vX.Y.Z 推送，GitHub Actions 自动构建安装包（scripts/download-build.ps1 可下载 CI 构建）
 ```
 
 ## CI/CD

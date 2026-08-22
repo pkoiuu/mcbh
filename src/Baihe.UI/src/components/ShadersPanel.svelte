@@ -18,6 +18,9 @@
   let shaders = $state<ShaderItem[]>([])
   let loading = $state(false)
   let actionLoading = $state<string | null>(null)
+  /** 待二次确认删除的文件名 */
+  let confirmDelete = $state<string | null>(null)
+  let confirmTimer: ReturnType<typeof setTimeout> | null = null
 
   /** 加载光影列表 */
   async function loadShaders(): Promise<void> {
@@ -70,10 +73,25 @@
     }
   }
 
-  /** 删除光影 */
-  async function deleteShader(fileName: string): Promise<void> {
+  /** 删除光影 — 内联二次确认（先点「删除」变「确认？」，再点执行，3s 未点自动恢复） */
+  function requestDelete(fileName: string): void {
+    if (confirmDelete === fileName) {
+      // 第二次点击 → 真正执行删除
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmDelete = null
+      doDelete(fileName)
+    } else {
+      confirmDelete = fileName
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmTimer = setTimeout(() => {
+        confirmDelete = null
+        confirmTimer = null
+      }, 3000)
+    }
+  }
+
+  async function doDelete(fileName: string): Promise<void> {
     if (actionLoading) return
-    if (!confirm(`确定删除光影「${fileName}」吗？`)) return
     actionLoading = fileName
     try {
       const result = await ipc<{ success: boolean; error?: string }>('shaders.delete', fileName)
@@ -200,13 +218,15 @@
               </div>
               <button
                 type="button"
-                aria-label="删除此光影"
+                aria-label={confirmDelete === shader.fileName ? '确认删除此光影' : '删除此光影'}
                 disabled={actionLoading !== null}
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-[var(--muted-foreground)] transition-[background-color,color] hover:bg-[var(--destructive)] hover:text-[var(--destructive-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
-                onclick={() => deleteShader(shader.fileName)}
+                class="flex h-8 shrink-0 items-center justify-center rounded-[8px] px-2 text-[12px] font-medium transition-[background-color,color] disabled:cursor-not-allowed disabled:opacity-50 {confirmDelete === shader.fileName ? 'bg-[var(--destructive)] text-[var(--destructive-foreground)]' : 'text-[var(--muted-foreground)] hover:bg-[var(--destructive)] hover:text-[var(--destructive-foreground)]'}"
+                onclick={() => requestDelete(shader.fileName)}
               >
                 {#if actionLoading === shader.fileName}
                   <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--muted-foreground)] border-t-transparent" aria-hidden="true"></span>
+                {:else if confirmDelete === shader.fileName}
+                  <span>确认？</span>
                 {:else}
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />

@@ -40,7 +40,7 @@ jobs:
           version: '11'
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -193,7 +193,7 @@ jobs:
       - name: Upload installer to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/白鹤服务器启动器_Setup_*.exe
+          files: dist/BaiheServer_Setup_*.exe
           generate_release_notes: true
           body: |
             ## 白鹤服务器启动器 v${{ github.ref_name }}

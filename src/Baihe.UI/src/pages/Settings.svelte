@@ -142,7 +142,7 @@
   let quickPlayEnabled = $state(true)
   let serverAddress = $state('play.simpfun.cn')
   let serverPort = $state(28230)
-  let appVersion = $state('1.1.1')
+  let appVersion = $state('未知')
   let settingsLoaded = $state(false)
   let settingsSaving = $state(false)
 
@@ -197,7 +197,7 @@
     try {
       appVersion = await ipc<string>('app.getVersion')
     } catch {
-      appVersion = '1.1.1'
+      appVersion = '未知'
     }
   }
 

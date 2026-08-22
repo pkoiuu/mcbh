@@ -16,16 +16,22 @@ public static class AuthService
     /// <summary>当前账户 (内存缓存)</summary>
     private static McAccount? _currentAccount;
 
+    /// <summary>账户缓存锁 — 保护 _currentAccount 的并发读写</summary>
+    private static readonly object _lock = new();
+
     /// <summary>
     /// 获取当前账户 — 不自动创建，未设置则返回 null
     /// </summary>
     public static Task<McAccount?> GetCurrentAccount()
     {
-        if (_currentAccount != null)
-            return Task.FromResult(_currentAccount)!;
+        lock (_lock)
+        {
+            if (_currentAccount != null)
+                return Task.FromResult(_currentAccount)!;
 
-        _currentAccount = AccountStore.Load();
-        return Task.FromResult(_currentAccount)!;
+            _currentAccount = AccountStore.Load();
+            return Task.FromResult(_currentAccount)!;
+        }
     }
 
     /// <summary>
@@ -42,7 +48,7 @@ public static class AuthService
     /// </summary>
     public static Task<McAccount> SetOfflineAccount(string username)
     {
-        _currentAccount = new McAccount
+        var account = new McAccount
         {
             Type = AccountType.Offline,
             Username = username,
@@ -50,14 +56,15 @@ public static class AuthService
             AccessToken = "offline-token",
             IsUserSet = true,
         };
-        AccountStore.Save(_currentAccount);
-        return Task.FromResult(_currentAccount);
+        lock (_lock) { _currentAccount = account; }
+        AccountStore.Save(account);
+        return Task.FromResult(account);
     }
 
     /// <summary>保存微软或第三方登录后的账户</summary>
     public static void SaveAccount(McAccount account)
     {
-        _currentAccount = account;
+        lock (_lock) { _currentAccount = account; }
         AccountStore.Save(account);
     }
 
