@@ -7,8 +7,8 @@
         <Company>白鹤服务器</Company>
         <Product>Baihe.Host</Product>
         <Copyright>Copyright © PCL Community 2026, 白鹤服务器</Copyright>
-        <AssemblyVersion>1.1.1.0</AssemblyVersion>
-        <FileVersion>1.1.1.0</FileVersion>
+        <AssemblyVersion>1.1.2.0</AssemblyVersion>
+        <FileVersion>1.1.2.0</FileVersion>
     </PropertyGroup>
     <PropertyGroup>
         <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
@@ -60,10 +60,6 @@
     <ItemGroup>
         <!-- WebView2 -->
         <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
-    </ItemGroup>
-    <!-- 项目引用 -->
-    <ItemGroup>
-        <ProjectReference Include="..\Baihe.Core\Baihe.Core.csproj" />
     </ItemGroup>
     <!-- 显式包含 XAML 页面 (修复 .NET 10 SDK glob 展开问题) -->
     <ItemGroup>

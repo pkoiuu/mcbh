@@ -7,7 +7,7 @@
 ; ============================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.1"
+  #define MyAppVersion "1.1.2"
 #endif
 
 [Setup]
@@ -76,7 +76,7 @@ Source: "..\dist\launcher\jre\*"; DestDir: "{app}\jre"; Flags: ignoreversion rec
 Source: "..\dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; ===== .minecraft 核心游戏文件 — 始终更新（升级时覆盖为新版本）=====
-; 版本文件 (versions/) — Minecraft 1.21.3 + Fabric Loader
+; 版本文件 (versions/) — Minecraft 1.21.8 + Fabric Loader
 Source: "..\dist\.minecraft\versions\*"; DestDir: "{app}\.minecraft\versions"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 ; 库文件 (libraries/) — 76 个库 + 9 个原生库
@@ -85,24 +85,34 @@ Source: "..\dist\.minecraft\libraries\*"; DestDir: "{app}\.minecraft\libraries";
 ; 资源文件 (assets/) — 3985 个资源对象
 Source: "..\dist\.minecraft\assets\*"; DestDir: "{app}\.minecraft\assets"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-; Fabric 预处理缓存 (.fabric/)
-Source: "..\dist\.minecraft\.fabric\*"; DestDir: "{app}\.minecraft\.fabric"; Flags: recursesubdirs createallsubdirs ignoreversion
-
 ; 预装 Mod (mods/) — 更新到最新版本（用户自添加的 mod 不受影响）
 Source: "..\dist\.minecraft\mods\*"; DestDir: "{app}\.minecraft\mods"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ===== .minecraft 用户数据 — 仅首次安装时写入，升级时保留用户已有配置 =====
+; ===== .minecraft 用户数据 — 仅首次安装时写入，升级/卸载时均保留用户已有配置 =====
+; 注意: onlyifdoesntexist 控制安装时不覆盖已有文件
+;       uninsneveruninstall 确保卸载时不删除这些用户配置文件
 ; 游戏设置 (options.txt) — 渲染距离、按键绑定、音量等
-Source: "..\dist\.minecraft\options.txt"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+Source: "..\dist\.minecraft\options.txt"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist uninsneveruninstall
 
 ; 服务器列表 (servers.dat)
-Source: "..\dist\.minecraft\servers.dat"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+Source: "..\dist\.minecraft\servers.dat"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist uninsneveruninstall
 
 ; Mod 配置 (config/) — 各 Mod 的配置文件
-Source: "..\dist\.minecraft\config\*"; DestDir: "{app}\.minecraft\config"; Flags: recursesubdirs createallsubdirs onlyifdoesntexist
+Source: "..\dist\.minecraft\config\*"; DestDir: "{app}\.minecraft\config"; Flags: recursesubdirs createallsubdirs onlyifdoesntexist uninsneveruninstall
 
 ; 启动器配置 (launcher_profiles.json)
-Source: "..\dist\.minecraft\launcher_profiles.json"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist
+Source: "..\dist\.minecraft\launcher_profiles.json"; DestDir: "{app}\.minecraft"; Flags: onlyifdoesntexist uninsneveruninstall
+
+[InstallDelete]
+; 升级时清理旧版内置版本目录（1.21.3 → 1.21.8 迁移；用户游戏存档在 saves/ 不受影响）
+Type: filesandordirs; Name: "{app}\.minecraft\versions\fabric-loader-0.16.14-1.21.3"
+Type: filesandordirs; Name: "{app}\.minecraft\versions\1.21.3"
+; 清理旧版 1.21.3 模组（含用户自加的 1.21.3 模组），避免与新的 1.21.8 模组共存导致重复加载崩溃
+; 注: 部分旧模组文件名不含 MC 版本标记，需精确匹配
+Type: files; Name: "{app}\.minecraft\mods\*1.21.3*"
+Type: files; Name: "{app}\.minecraft\mods\*1.21.2*"
+Type: files; Name: "{app}\.minecraft\mods\cloth-config-16.0.143-fabric.jar"
+Type: files; Name: "{app}\.minecraft\mods\modmenu-12.0.1.jar"
 
 [Icons]
 ; 桌面快捷方式 — 使用 userdesktop 避免 lowest 权限下 commondesktop 的问题
@@ -119,10 +129,9 @@ Filename: "{app}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/si
 Filename: "{app}\Baihe.exe"; Description: "{cm:LaunchProgram,白鹤服务器启动器}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 卸载时仅清理运行时产生的数据，保留用户存档 (saves)
+; 卸载时仅清理运行时产生的临时数据，保留用户数据 (saves/options.txt/screenshots/config 等)
 Type: filesandordirs; Name: "{app}\.minecraft\logs"
 Type: filesandordirs; Name: "{app}\.minecraft\crash-reports"
-Type: filesandordirs; Name: "{app}\.minecraft\screenshots"
 Type: filesandordirs; Name: "{app}\.minecraft\downloads"
 
 [Code]

@@ -1,5 +1,4 @@
-// Java 检测服务 — 桥接 Baihe.Core 的 JavaManager，提供 IPC 查询接口
-// 优先使用捆绑 JRE（jre/bin/java.exe），其次系统 Java
+// Java 检测服务 — 优先使用捆绑 JRE（jre/bin/java.exe），其次系统 Java
 
 using System;
 using System.Collections.Generic;

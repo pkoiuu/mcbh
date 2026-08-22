@@ -1,5 +1,8 @@
 // Mod 管理服务 — 列出、启用/禁用、删除 Fabric mod
-// mods 目录: .minecraft/mods 和 .minecraft/versions/<version>/mods
+// mods 目录: .minecraft/mods（游戏实际加载的全局模组目录）
+// 注意: 游戏(启动参数 gameDir=.minecraft)只从 .minecraft/mods 加载模组，
+//       版本专属目录 .minecraft/versions/<version>/mods 不会被游戏加载。
+//       之前优先返回版本专属目录会导致模组管理显示错误的模组列表，现统一使用全局目录。
 
 using System;
 using System.Collections.Generic;
@@ -11,17 +14,10 @@ namespace Baihe.Host.Services;
 
 public static class ModService
 {
-    /// <summary>获取 mods 目录路径 — 优先版本专属目录，其次全局 mods 目录</summary>
-    private static async Task<string> GetModsDir()
+    /// <summary>获取 mods 目录路径 — 游戏实际加载的全局 mods 目录 (.minecraft/mods)</summary>
+    private static string GetModsDir()
     {
         var mcDir = InstanceService.GetMcDirectory();
-        var current = await InstanceService.GetCurrentInstance();
-        if (current != null)
-        {
-            var versionModsDir = Path.Combine(mcDir, "versions", current.Id, "mods");
-            if (Directory.Exists(versionModsDir))
-                return versionModsDir;
-        }
         var globalModsDir = Path.Combine(mcDir, "mods");
         Directory.CreateDirectory(globalModsDir);
         return globalModsDir;
@@ -30,7 +26,7 @@ public static class ModService
     /// <summary>列出所有 mod</summary>
     public static async Task<List<ModInfo>> ListMods()
     {
-        var modsDir = await GetModsDir();
+        var modsDir = GetModsDir();
         var mods = new List<ModInfo>();
 
         if (!Directory.Exists(modsDir))
@@ -74,7 +70,7 @@ public static class ModService
     /// <summary>切换 mod 启用/禁用状态</summary>
     public static async Task<bool> ToggleMod(string fileName)
     {
-        var modsDir = await GetModsDir();
+        var modsDir = GetModsDir();
 
         // 判断当前是启用还是禁用状态
         if (fileName.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
@@ -109,7 +105,7 @@ public static class ModService
     /// <summary>删除 mod</summary>
     public static async Task DeleteMod(string fileName)
     {
-        var modsDir = await GetModsDir();
+        var modsDir = GetModsDir();
         var path = Path.Combine(modsDir, fileName);
         if (File.Exists(path))
             File.Delete(path);
@@ -124,7 +120,7 @@ public static class ModService
     /// <summary>打开 mods 文件夹</summary>
     public static async Task<string> OpenModsFolder()
     {
-        var modsDir = await GetModsDir();
+        var modsDir = GetModsDir();
         System.Diagnostics.Process.Start("explorer.exe", modsDir);
         return modsDir;
     }

@@ -180,7 +180,7 @@ public partial class MainWindow : Window
         _ipcRouter.Register("app.getVersion", _ =>
         {
             var assembly = Assembly.GetExecutingAssembly();
-            var version = "1.1.1";
+            var version = "1.1.2";
 
             // 优先从 AssemblyFileVersion 读取（Release 构建通过 -p:FileVersion 注入）
             var fileVer = assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();

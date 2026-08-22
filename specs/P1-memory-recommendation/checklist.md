@@ -32,7 +32,7 @@
 ## 代码质量
 
 - [x] `pnpm build` 无 TypeScript 编译错误
-- [x] CI `dotnet build` 编译通过（本地 MSBuild 权限问题已知，需 CI 验证）
+- [x] CI `dotnet build` 编译通过（GitHub Actions Windows 环境验证通过，2m27s）
 - [x] CalculateRecommendedMemory 方法是公共静态方法，可被 IPC 调用
 - [x] GetTotalPhysicalMemoryMB 有异常处理
 - [x] generateMemoryOptions 函数逻辑正确（去重、排序、包含推荐值）

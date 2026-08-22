@@ -1,12 +1,11 @@
 # 白鹤服务器 Minecraft 启动器
 
-> 完全自主开发的 Minecraft 启动器，专为白鹤服务器定制。UI 采用 macOS 风格设计，核心启动能力基于 fork PCL.Core（Apache 2.0）重写。
+> 完全自主开发的 Minecraft 启动器，专为白鹤服务器定制。UI 采用 macOS 风格设计，后端为独立 WPF 宿主，无需外部核心库依赖。
 
 ## 技术栈
 
 - **后端**: C# .NET 10 WPF + WebView2
 - **前端**: Vite + Svelte 5 + Tailwind CSS 4 + Lucide Icons
-- **核心库**: Baihe.Core（fork 自 PCL.Core，裁剪 WPF 耦合）
 - **打包**: Inno Setup 6
 - **CI/CD**: GitHub Actions
 
@@ -14,9 +13,7 @@
 
 ```
 src/
-├── Baihe.Host/              # WPF 主进程宿主（WebView2 + 标题栏 + IPC）
-├── Baihe.Core/              # MC 启动核心（fork 自 PCL.Core）
-├── Baihe.Core.SourceGenerators/  # 源生成器（fork 自 PCL.Core.SourceGenerators）
+├── Baihe.Host/              # WPF 主进程宿主（WebView2 + 标题栏 + IPC + 全部业务服务）
 └── Baihe.UI/                # Svelte 5 前端
 installer/                   # Inno Setup 安装脚本
 scripts/                     # 构建脚本
@@ -44,7 +41,6 @@ cd ../..
 Copy-Item src/Baihe.UI/build/* src/Baihe.Host/assets/ -Recurse -Force
 
 # 3. 构建后端
-dotnet build src/Baihe.Core/Baihe.Core.csproj -c Release
 dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release
 
 # 4. 运行
@@ -77,6 +73,4 @@ CI 中通过 `gh release download v1.0-assets` 下载复用。.minecraft 更新�
 
 ## 许可证
 
-Apache License 2.0（继承自 PCL.Core）
-
-Baihe.Core 基于 PCL.Core（Apache 2.0）fork 重写，保留原始版权声明。
+Apache License 2.0

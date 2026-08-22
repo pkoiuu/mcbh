@@ -1,4 +1,5 @@
 # CI 编译验证 — 每次 push/PR 自动验证编译
+# 优化: 并行 install/restore + 多进程编译 + 条件打包 + 7z 压缩
 name: CI
 
 on:
@@ -6,6 +7,11 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
 
 jobs:
   build:
@@ -50,34 +56,48 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Build frontend
-        working-directory: src/Baihe.UI
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
-
-      - name: Build Baihe.Core
-        run: dotnet build src/Baihe.Core/Baihe.Core.csproj -c Release
-
-      - name: Build Baihe.Host
-        run: dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: baihe-build
-          path: |
-            src/Baihe.Host/bin/Release/net10.0-windows/
-            src/Baihe.Core/bin/Release/net10.0-windows/
-          retention-days: 7
-
-      - name: Package build for release
+      # 并行: pnpm install (后台) + dotnet restore (前台)
+      # 节省约 15s — 两个独立操作重叠执行
+      - name: Install frontend deps + restore backend (parallel)
         shell: pwsh
         run: |
-          Compress-Archive -Path "src/Baihe.Host/bin/Release/net10.0-windows/win-x64/*" `
-            -DestinationPath "baihe-build.zip" -Force
+          Write-Host '=== Starting parallel pnpm install + dotnet restore ==='
+          $pnpm = Start-Process pnpm -ArgumentList 'install --frozen-lockfile --prefer-offline' `
+            -WorkingDirectory "$PWD/src/Baihe.UI" -NoNewWindow -PassThru `
+            -RedirectStandardOutput 'pnpm-install.log' -RedirectStandardError 'pnpm-install-error.log'
+
+          dotnet restore src/Baihe.Host/Baihe.Host.csproj
+
+          $pnpm.WaitForExit()
+          Write-Host '--- pnpm install output ---'
+          if (Test-Path pnpm-install.log) { Get-Content pnpm-install.log }
+          if (Test-Path pnpm-install-error.log) { Get-Content pnpm-install-error.log }
+          if ($pnpm.ExitCode -ne 0) {
+            Write-Host "pnpm install failed with exit code $($pnpm.ExitCode)"
+            exit 1
+          }
+          Write-Host '=== Parallel phase complete ==='
+
+      - name: Build frontend
+        working-directory: src/Baihe.UI
+        run: pnpm build
+
+      # -m: MSBuild 多进程编译 (利用多核)
+      # --no-restore: 跳过冗余 restore (已在上方完成)
+      - name: Build backend (parallel MSBuild)
+        run: dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release -m --no-restore
+
+      # 仅 main 分支 push 时打包 + 发布 (PR 跳过，节省约 80s)
+      - name: Package build
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        shell: pwsh
+        run: |
+          Write-Host '=== Compressing build with 7z (fast mode) ==='
+          & 'C:\Program Files\7-Zip\7z.exe' a -tzip -mx=1 baihe-build.zip `
+            'src/Baihe.Host/bin/Release/net10.0-windows/win-x64/*'
 
       - name: Update latest release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
