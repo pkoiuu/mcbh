@@ -104,10 +104,11 @@ jobs:
           } -ArgumentList $PWD, $env:GH_TOKEN
 
           # 4. NuGet restore (后台, 约 15-30s, 不依赖 wwwroot)
+          # 注: 必须与 publish 使用相同的属性 (PublishReadyToRun=true)，否则 R2R 运行时包未还原导致 NETSDK1094
           $restoreJob = Start-Job -ScriptBlock {
             param($workDir)
             Set-Location $workDir
-            dotnet restore src/Baihe.Host/Baihe.Host.csproj 2>&1
+            dotnet restore src/Baihe.Host/Baihe.Host.csproj -p:PublishReadyToRun=true 2>&1
           } -ArgumentList $PWD
 
           # 5. 前端构建 (前台, 约 15s)
