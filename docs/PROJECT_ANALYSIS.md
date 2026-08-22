@@ -173,6 +173,8 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 |---|---|---|---|
 | MainWindow.xaml.cs | 960 | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands） |
 | LaunchService | 1113 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控 |
+| NbtHelper | — | Minecraft NBT 格式通用读写 | 大端序（BinaryPrimitives.*BigEndian）；servers.dat 未压缩 |
+| ServerListService | — | 自动把白鹤服务器加入 servers.dat | 启动游戏前调用；同 ip 条目自动改名「白鹤服务器」，幂等 |
 | DownloadService | 490 | 下载管线 | SHA1 校验 + 6 并发 + 进度推送；`.tmp` 临时文件校验后改名 |
 | MicrosoftAuthService | 706 | 微软设备码登录 + 令牌刷新 | 6 步流程，Xerr 错误码映射 |
 | ThirdPartyAuthService | 384 | Yggdrasil/Authlib-Injector | ALI 指示解析（≤5 次重定向）、LittleSkin 预设 |
@@ -355,6 +357,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 | cache/version_manifest.json | Mojang 清单（24h） | VersionService |
 | current_instance.txt | 选中实例 ID | InstanceService |
 | launch_cmd.log / launch_error.log | 启动命令/错误诊断 | LaunchService |
+| servers.dat（.minecraft/） | Minecraft 多人游戏服务器列表（NBT） | ServerListService 启动时确保「白鹤服务器」在列 |
 | natives_debug.log / debug-paths.txt | 调试日志 | LaunchService / WebViewHost |
 | .minecraft/** | 游戏目录（.minecraft 由 GetMcDirectory 定位） | 各服务 |
 

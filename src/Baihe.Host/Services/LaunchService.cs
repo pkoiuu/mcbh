@@ -135,6 +135,16 @@ public static class LaunchService
             // 反编译 fmg.class 确认: onboardAccessibility:false → 跳过欢迎界面, true → 显示欢迎界面
             EnsureOptionsTxt(gameDir);
 
+            // 自动把白鹤服务器添加到多人游戏列表 (servers.dat) — 退出服务器回到主界面时无需手动添加
+            try
+            {
+                ServerListService.EnsureBaiheServer(settings.ServerAddress, settings.ServerPort);
+            }
+            catch
+            {
+                // 添加失败不影响启动
+            }
+
             // 13. 启动进程
             _state = LaunchState.Launching;
             _stateMessage = "正在启动游戏...";
