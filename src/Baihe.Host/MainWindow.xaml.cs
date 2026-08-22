@@ -180,7 +180,7 @@ public partial class MainWindow : Window
         _ipcRouter.Register("app.getVersion", _ =>
         {
             var assembly = Assembly.GetExecutingAssembly();
-            var version = "1.1.4";
+            var version = "1.1.5";
 
             // 优先从 AssemblyFileVersion 读取（Release 构建通过 -p:FileVersion 注入）
             var fileVer = assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();
@@ -199,9 +199,14 @@ public partial class MainWindow : Window
         });
 
         // 检查更新 — 查询 GitHub Releases 最新版本（支持国内镜像下载）
-        _ipcRouter.Register("update.check", async _ =>
+        // 参数可选: {force:true} 强制忽略缓存（设置页手动检查）
+        _ipcRouter.Register("update.check", async args =>
         {
-            return await UpdateService.CheckForUpdateAsync();
+            var force = false;
+            if (args?.ValueKind == JsonValueKind.Object
+                && args.Value.TryGetProperty("force", out var forceProp))
+                force = forceProp.ValueKind == JsonValueKind.True;
+            return await UpdateService.CheckForUpdateAsync(force);
         });
 
         // ===== Stage 2: 启动核心命令 =====

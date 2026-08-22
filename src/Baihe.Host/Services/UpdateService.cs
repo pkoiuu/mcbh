@@ -1,11 +1,12 @@
 // 更新检查服务 — 检查 GitHub Releases 最新版本，支持国内镜像加速下载
 // 特性:
-//  1. 镜像列表自动更新 — 每次检查更新时从仓库 mirrors.json 拉取最新加速站列表
-//     (https://raw.githubusercontent.com/pkoiuu/mcbh/main/mirrors.json)，
-//     拉取失败时回退内置默认列表（内置列表兜底，无需发版即可更新镜像）
-//  2. 速度优先 — 对真实下载 URL 并行测速（下载前 512KB 计时），选择最快镜像；
-//     所有镜像不可用时回退 GitHub 直链
-//  3. 中文文件名支持 — 部分镜像不支持中文文件名（安装包为中文名），测速逻辑自动淘汰
+//  1. 结果缓存 — cache/update_check.json，TTL 1 小时；无参调用直接返回缓存（秒回），
+//     传 force=true 强制重新检查（设置页「检查更新」按钮）
+//  2. 镜像列表自动更新 — 每次完整检查时从仓库 mirrors.json 拉取最新加速站列表
+//     (raw.githubusercontent.com，3s 超时)，失败回退内置默认列表，无需发版即可更新镜像
+//  3. 速度优先 — 对真实下载 URL 并行测速（普通 GET 读前 512KB 计时），
+//     一旦有镜像测速 > 3MB/s 立即返回（早退），最多等 3s 取最快；全部失败回退 GitHub 直链
+//  4. 耗时控制 — GitHub API 直连 3s 超时；总预算典型 1-3s，最坏 ~5s
 
 using System;
 using System.Collections.Generic;
@@ -34,10 +35,7 @@ public static class UpdateService
     private static readonly string MirrorsJsonUrl =
         $"https://raw.githubusercontent.com/{RepoOwner}/{RepoName}/main/mirrors.json";
 
-    /// <summary>
-    /// 内置默认镜像前缀列表（兜底）— 仅在 mirrors.json 拉取失败时使用。
-    /// 完整列表维护在仓库 mirrors.json，可自动更新无需发版。
-    /// </summary>
+    /// <summary>内置默认镜像前缀列表（兜底）— 仅在 mirrors.json 拉取失败时使用</summary>
     private static readonly string[] BuiltinMirrorPrefixes =
     {
         "https://ghfast.top/",
@@ -49,11 +47,26 @@ public static class UpdateService
     /// <summary>测速下载的字节数（512KB）</summary>
     private const int SpeedProbeBytes = 512 * 1024;
 
-    /// <summary>镜像测速总超时（秒）</summary>
-    private const int SpeedProbeTimeoutSeconds = 10;
+    /// <summary>测速早退阈值（MB/s）— 有镜像超过此速度立即返回</summary>
+    private const double EarlyExitSpeedMbps = 3.0;
 
-    /// <summary>单个镜像测速超时（秒）</summary>
-    private const int SingleProbeTimeoutSeconds = 4;
+    /// <summary>测速总等待上限（毫秒）</summary>
+    private const int SpeedProbeWaitMs = 3000;
+
+    /// <summary>测速并发探测的镜像数上限</summary>
+    private const int MaxProbeMirrors = 12;
+
+    /// <summary>GitHub API 单次超时（毫秒）— 直连国内常 >3s，放宽到 5s 避免误判；缓存后无感</summary>
+    private const int ApiTimeoutMs = 5000;
+
+    /// <summary>mirrors.json 拉取超时（毫秒）</summary>
+    private const int MirrorsFetchTimeoutMs = 3000;
+
+    /// <summary>缓存文件路径</summary>
+    private static readonly string CachePath = Path.Combine(AppContext.BaseDirectory, "cache", "update_check.json");
+
+    /// <summary>缓存有效期</summary>
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
     static UpdateService()
     {
@@ -63,23 +76,32 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 检查是否有新版本 — 调用 GitHub API 获取最新 Release
+    /// 检查是否有新版本 — 缓存优先；force=true 时强制重新检查
     /// </summary>
-    public static async Task<UpdateInfo> CheckForUpdateAsync()
+    /// <param name="force">是否忽略缓存强制检查（设置页手动检查时传 true）</param>
+    public static async Task<UpdateInfo> CheckForUpdateAsync(bool force = false)
     {
         var currentVersion = Assembly.GetExecutingAssembly()
             .GetName().Version?.ToString() ?? "1.0.0";
 
+        // 缓存优先 — 缓存新鲜且非强制时直接返回
+        if (!force)
+        {
+            var cached = LoadCache();
+            if (cached != null)
+                return cached;
+        }
+
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            // 并行: 查最新 Release（3s 超时）+ 拉取最新镜像列表（3s 超时）
+            var releaseTask = FetchLatestReleaseAsync();
+            var mirrorsTask = FetchMirrorsAsync();
 
-            // 并行: 查最新 Release + 拉取最新镜像列表
-            var releaseTask = FetchLatestReleaseAsync(cts.Token);
-            var mirrorsTask = FetchMirrorsAsync(cts.Token);
-
-            var root = await releaseTask;
+            var releaseJson = await releaseTask;
             var mirrors = await mirrorsTask;
+
+            var root = releaseJson;
 
             // 解析版本号 (tag_name: "v1.0.0" → "1.0.0")
             var tagName = root.TryGetProperty("tag_name", out var tagProp)
@@ -113,12 +135,12 @@ public static class UpdateService
                 }
             }
 
-            // 速度优先 — 对真实下载 URL 并行测速，选最快镜像
+            // 速度优先 — 对真实下载 URL 并行测速（早退），选最快镜像
             double speedMbps = 0;
             string source = "GitHub 直链";
             if (downloadUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
             {
-                var best = await PickFastestMirrorAsync(downloadUrl, mirrors, cts.Token);
+                var best = await PickFastestMirrorAsync(downloadUrl, mirrors);
                 if (best != null)
                 {
                     downloadUrl = best.Url;
@@ -129,7 +151,7 @@ public static class UpdateService
 
             var hasUpdate = IsNewerVersion(latestVersion, currentVersion);
 
-            return new UpdateInfo
+            var info = new UpdateInfo
             {
                 HasUpdate = hasUpdate,
                 CurrentVersion = currentVersion,
@@ -140,10 +162,18 @@ public static class UpdateService
                 DownloadSpeedMBps = speedMbps,
                 DownloadSource = source,
             };
+
+            // 写缓存（成功拿到最新版本信息才缓存；网络失败不缓存）
+            SaveCache(info);
+            return info;
         }
         catch
         {
-            // 网络错误或 API 不可用时静默返回无更新
+            // 网络错误或 API 不可用时 — 优先返回缓存（允许过期，避免误报"无更新"），否则静默返回无更新
+            var stale = LoadCache(allowStale: true);
+            if (stale != null)
+                return stale;
+
             return new UpdateInfo
             {
                 HasUpdate = false,
@@ -161,13 +191,14 @@ public static class UpdateService
     // =========================================================================
 
     /// <summary>
-    /// 获取最新 Release 的 JSON 根元素
+    /// 获取最新 Release 的 JSON 根元素 — 3s 超时，失败抛出（由调用方兜底）
     /// </summary>
-    private static async Task<JsonElement> FetchLatestReleaseAsync(CancellationToken token)
+    private static async Task<JsonElement> FetchLatestReleaseAsync()
     {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(ApiTimeoutMs));
         var response = await _httpClient.GetStringAsync(
             $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest",
-            token);
+            cts.Token);
         using var doc = JsonDocument.Parse(response);
         return doc.RootElement.Clone();
     }
@@ -177,19 +208,20 @@ public static class UpdateService
     // =========================================================================
 
     /// <summary>
-    /// 拉取最新镜像列表 — 从仓库 mirrors.json 获取；失败回退内置默认列表
+    /// 拉取最新镜像列表 — 从仓库 mirrors.json 获取（3s 超时）；失败回退内置默认列表
     /// </summary>
-    private static async Task<List<string>> FetchMirrorsAsync(CancellationToken token)
+    private static async Task<List<string>> FetchMirrorsAsync()
     {
         try
         {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(MirrorsFetchTimeoutMs));
             using var request = new HttpRequestMessage(HttpMethod.Get, MirrorsJsonUrl);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
             if (!response.IsSuccessStatusCode)
                 return BuiltinMirrorPrefixes.ToList();
 
-            var json = await response.Content.ReadAsStringAsync(token);
+            var json = await response.Content.ReadAsStringAsync(cts.Token);
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("mirrors", out var mirrorsProp)
                 || mirrorsProp.ValueKind != JsonValueKind.Array)
@@ -201,7 +233,6 @@ public static class UpdateService
                 var prefix = m.GetString();
                 if (!string.IsNullOrWhiteSpace(prefix))
                 {
-                    // 规范化: 确保以 / 结尾
                     if (!prefix.EndsWith("/", StringComparison.Ordinal))
                         prefix += "/";
                     mirrors.Add(prefix);
@@ -216,7 +247,7 @@ public static class UpdateService
     }
 
     // =========================================================================
-    // 速度探测 — 速度优先，选最快镜像
+    // 速度探测 — 速度优先 + 早退
     // =========================================================================
 
     /// <summary>镜像测速结果</summary>
@@ -228,19 +259,20 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 并行测速所有镜像 — 对真实下载 URL 下载前 512KB 计时，返回最快的镜像；
+    /// 并行测速所有镜像 — 对真实下载 URL 下载前 512KB 计时。
+    /// 早退策略: 一旦有镜像测速 > 3MB/s 立即返回该镜像；否则最多等 3s 取最快。
     /// 全部失败返回 null（调用方回退直链）
     /// </summary>
-    private static async Task<MirrorSpeedResult?> PickFastestMirrorAsync(
-        string downloadUrl, List<string> mirrors, CancellationToken token)
+    private static async Task<MirrorSpeedResult?> PickFastestMirrorAsync(string downloadUrl, List<string> mirrors)
     {
-        var candidates = mirrors
+        // 限制并发探测数量，避免过多无效流量
+        var probeMirrors = mirrors.Take(MaxProbeMirrors).ToList();
+
+        var candidates = probeMirrors
             .Select(m => new { Url = m + downloadUrl.Substring("https://".Length), Host = ExtractHost(m) })
             .ToList();
 
-        // 并行测速（每镜像 4s 超时）
-        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        probeCts.CancelAfter(TimeSpan.FromSeconds(SpeedProbeTimeoutSeconds));
+        using var probeCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(SpeedProbeWaitMs));
 
         var tasks = candidates
             .Select(c => MeasureSpeedAsync(c.Url, probeCts.Token)
@@ -249,21 +281,29 @@ public static class UpdateService
                     : null, TaskContinuationOptions.ExecuteSynchronously))
             .ToArray();
 
-        try
-        {
-            await Task.WhenAll(tasks);
-        }
-        catch
-        {
-            // 忽略个别失败
-        }
+        // 轮询: 每个任务完成时检查是否达到早退阈值
+        var remaining = new HashSet<Task<MirrorSpeedResult?>>(tasks);
+        MirrorSpeedResult? best = null;
+        var deadline = DateTime.UtcNow.AddMilliseconds(SpeedProbeWaitMs);
 
-        // 选最快的镜像（>0 表示测速成功）
-        var best = tasks
-            .Where(t => t.Status == TaskStatus.RanToCompletion && t.Result != null)
-            .Select(t => t.Result!)
-            .OrderByDescending(r => r.SpeedMbps)
-            .FirstOrDefault();
+        while (remaining.Count > 0)
+        {
+            var done = await Task.WhenAny(remaining);
+            remaining.Remove(done);
+
+            if (done.Status == TaskStatus.RanToCompletion && done.Result != null)
+            {
+                var r = done.Result;
+                if (best == null || r.SpeedMbps > best.SpeedMbps)
+                    best = r;
+                // 早退: 达到速度阈值立即返回
+                if (r.SpeedMbps >= EarlyExitSpeedMbps)
+                    return r;
+            }
+
+            if (remaining.Count == 0 || DateTime.UtcNow >= deadline)
+                break;
+        }
 
         return best;
     }
@@ -317,6 +357,92 @@ public static class UpdateService
         {
             return prefix;
         }
+    }
+
+    // =========================================================================
+    // 结果缓存
+    // =========================================================================
+
+    /// <summary>
+    /// 读取缓存 — allowStale=false 时仅返回 TTL 内的新鲜缓存；allowStale=true 时过期缓存也返回
+    /// </summary>
+    private static UpdateInfo? LoadCache(bool allowStale = false)
+    {
+        try
+        {
+            if (!File.Exists(CachePath))
+                return null;
+
+            var json = File.ReadAllText(CachePath);
+            var cached = JsonSerializer.Deserialize<CachedUpdateInfo>(json, JsonOptions);
+            if (cached == null || string.IsNullOrEmpty(cached.LatestVersion))
+                return null;
+
+            // 检查新鲜度
+            var age = DateTime.UtcNow - cached.CheckedAtUtc;
+            if (!allowStale && age > CacheTtl)
+                return null;
+
+            return new UpdateInfo
+            {
+                HasUpdate = cached.HasUpdate,
+                CurrentVersion = cached.CurrentVersion,
+                LatestVersion = cached.LatestVersion,
+                DownloadUrl = cached.DownloadUrl,
+                ReleaseUrl = cached.ReleaseUrl,
+                ReleaseNotes = cached.ReleaseNotes,
+                DownloadSpeedMBps = cached.DownloadSpeedMBps,
+                DownloadSource = cached.DownloadSource,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>写入缓存</summary>
+    private static void SaveCache(UpdateInfo info)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(CachePath);
+            if (dir != null) Directory.CreateDirectory(dir);
+
+            var cached = new CachedUpdateInfo
+            {
+                CheckedAtUtc = DateTime.UtcNow,
+                HasUpdate = info.HasUpdate,
+                CurrentVersion = info.CurrentVersion,
+                LatestVersion = info.LatestVersion,
+                DownloadUrl = info.DownloadUrl,
+                ReleaseUrl = info.ReleaseUrl,
+                ReleaseNotes = info.ReleaseNotes,
+                DownloadSpeedMBps = info.DownloadSpeedMBps,
+                DownloadSource = info.DownloadSource,
+            };
+            File.WriteAllText(CachePath, JsonSerializer.Serialize(cached, JsonOptions));
+        }
+        catch
+        {
+            // 缓存写入失败不影响功能
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>缓存模型</summary>
+    private sealed class CachedUpdateInfo
+    {
+        public DateTime CheckedAtUtc { get; set; }
+        public bool HasUpdate { get; set; }
+        public string CurrentVersion { get; set; } = "";
+        public string LatestVersion { get; set; } = "";
+        public string DownloadUrl { get; set; } = "";
+        public string ReleaseUrl { get; set; } = "";
+        public string ReleaseNotes { get; set; } = "";
+        public double DownloadSpeedMBps { get; set; }
+        public string DownloadSource { get; set; } = "";
     }
 
     /// <summary>

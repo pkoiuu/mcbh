@@ -217,7 +217,7 @@
   async function checkForUpdate(): Promise<void> {
     updateChecking = true
     try {
-      updateInfo = await ipc<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; downloadSpeedMBps?: number; downloadSource?: string }>('update.check')
+      updateInfo = await ipc<{ hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; downloadSpeedMBps?: number; downloadSource?: string }>('update.check', { force: true })
     } catch {
       updateInfo = null
     } finally {
