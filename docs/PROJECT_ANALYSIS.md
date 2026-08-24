@@ -1,14 +1,15 @@
 # 白鹤服务器启动器（Baihe / mcbh）— 项目分析文档
 
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
-> 本文档基于源码实际内容逐文件核验整理（2026-08-18 深度核验版），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
-> 核验基准：工作区当前状态（含未提交的 Baihe.Core 移除重构），AssemblyVersion 1.1.1.0（git tag v1.1.1），前端 v0.0.1。
+> 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
+> 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9，新增 光影管理/最新动态/单实例 等）→ **v1.1.10**（2026-08-25 发布：玩家指南维基 + 默认允许服务器资源包 + 服务器列表选择）。
 
 ---
 
 ## 0. 当前工作区状态（改代码前必读）
 
-**仓库已完成「移除 Baihe.Core」的架构瘦身重构**（随 v1.1.2 发布提交）：`src/Baihe.Core/`（约 300+ 文件）与 `src/Baihe.Core.SourceGenerators/` 已从解决方案移除，`Baihe.slnx` 只剩 `src/Baihe.Host` 一个 .NET 项目，`App.xaml.cs` 回到纯 `Application`。
+**仓库已完成「移除 Baihe.Core」的架构瘦身重构**（随 v1.1.2 提交，非未提交状态）：`src/Baihe.Core/`（约 300+ 文件）与 `src/Baihe.Core.SourceGenerators/` 已从解决方案移除，`Baihe.slnx` 只剩 `src/Baihe.Host` 一个 .NET 项目。**当前工作区无未提交的源码修改**（仅 .temp/.uploads/baihe-launcher-analysis 等工具目录未跟踪，与源码无关）。
 
 **含义与影响**：
 
@@ -16,6 +17,7 @@
 2. **不要再创建或引用 `src/Baihe.Core`**。所有新代码一律放 `src/Baihe.Host`（后端）或 `src/Baihe.UI`（前端）。
 3. 老文档（根目录 4 份分析文档）大量描述 Baihe.Core 的架构，已过时；以本文档与 `src/Baihe.Host` 源码为准。
 4. 重构提交后，`PCL2-CE/` 目录仍保留仅作参考（启动/认证逻辑的注释多处「参照 PCL CE」），不参与构建。
+5. **单实例防多开**（v1.1.9）：`App.xaml.cs` 用命名 Mutex（`BaiheServerLauncher_SingleInstance_Mutex_8F2B7A3C`）保证只有一个实例，第二个实例启动时激活已有窗口（SW_RESTORE + SetForegroundWindow）并退出自身。
 
 ---
 
@@ -26,9 +28,10 @@
 - 启动 Minecraft（原版 + Fabric），QuickPlay 直连白鹤服务器
 - 下载/安装 Minecraft 版本与 Fabric Loader
 - 三种登录方式：离线 / 微软正版（设备码）/ 第三方验证（Yggdrasil / LittleSkin）
-- Mod 管理、存档备份/导入/恢复、截图浏览、游戏修复
+- Mod 管理（含中文名映射、图标提取）、光影管理（Iris shaderpacks）、存档备份/导入/恢复、截图浏览、游戏修复
+- 首页「最新动态」（拉取仓库 news.json，可远程更新公告）+ 服务器状态 + 更新横幅
 - 内置聊天（WebView2 导航到外部 Element 聊天页，注入返回按钮与消息监控）
-- 系统托盘、主题切换（深/浅）、更新检查、遥测上报、微信名收集
+- 系统托盘、主题切换（深/浅）、更新检查（镜像测速）、遥测上报、微信名收集、单实例防多开
 
 **技术栈**：
 
@@ -36,7 +39,7 @@
 |---|---|
 | 后端宿主 | C# .NET 10 WPF + WebView2（Microsoft.Web.WebView2 1.0.4078.44，WinForms 托盘） |
 | 前端 | Vite 6 + Svelte 5（runes）+ Tailwind CSS 4 + lucide-svelte（实际图标走内联 SVG） |
-| 打包 | Inno Setup 6（installer/baihe_installer.iss）+ jlink 最小化 JRE 21 |
+| 打包 | Inno Setup 6（installer/baihe_installer.iss）+ jlink 最小化 JRE 21（20 模块） |
 | CI/CD | GitHub Actions（ci.yml 编译验证、release.yml 打 tag 发版） |
 
 ---
@@ -46,21 +49,21 @@
 ```text
 Baihe.slnx                        # 解决方案，仅引用 src/Baihe.Host（Core 已移除）
 src/
-├── Baihe.Host/                   # WPF 宿主进程（唯一 .NET 项目）
-│   ├── App.xaml(.cs)             # 应用入口（StartupUri 启动 MainWindow）
+├── Baihe.Host/                   # WPF 宿主进程（唯一 .NET 项目，v1.1.9 = 24 个服务文件）
+│   ├── App.xaml(.cs)             # 应用入口 + 单实例 Mutex（防多开，v1.1.9）
 │   ├── MainWindow.xaml(.cs)      # 主窗口：WebView2 初始化 + 全部 IPC 命令注册（partial 拆分: MainWindow.Chat.cs）
 │   ├── Chrome/TitleBar.xaml(.cs) # 原生标题栏 + 交通灯按钮
 │   ├── Ipc/                      # IpcMessage.cs + IpcRouter.cs（IPC 协议与路由）
 │   ├── Web/WebViewHost.cs        # WebView2 环境创建 + 虚拟主机映射
 │   ├── Models/                   # McAccount / OfflineAccount / GameInstance
-│   └── Services/                 # 19 个业务服务（见 §6）
+│   └── Services/                 # 24 个业务服务（见 §6；NewsService/ShaderService/MinecraftRules 为 v1.1.3~1.1.8 新增）
 └── Baihe.UI/                     # Svelte 5 前端（构建输出到 ../Baihe.Host/wwwroot）
     ├── vite.config.ts            # outDir: ../Baihe.Host/wwwroot，WebView2 兼容插件
     └── src/
         ├── main.ts / App.svelte  # 入口 + 根组件（路由切换 + 微信名弹窗 + Toast）
         ├── app.css               # 设计令牌系统（Tailwind 4 @theme + CSS 变量双层）
-        ├── components/           # WindowShell / Sidebar / WeChatDialog
-        ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）
+        ├── components/           # WindowShell / Sidebar / WeChatDialog / ShadersPanel(v1.1.3+) / SaveManager(v1.1.3+)
+        ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）+ shaders.ts(v1.1.3+)
         └── pages/                # Home / Download / Settings / Tools / Login
 PCL2-CE/                          # 上游 Plain Craft Launcher 2 CE 的 fork（仅参考，不参与构建）
 installer/                        # Inno Setup 安装脚本
@@ -69,6 +72,7 @@ installer_assets/                 # 安装向导图片（wizimage.bmp 等）
 scripts/                          # download-build / fork-rename / upload-minecraft-assets
 specs/                            # P0-theme-switching、P1-memory-recommendation（各含 spec/tasks/checklist）
 docs/                             # telemetry-api-guidelines.md、PROJECT_ANALYSIS.md
+news.json / mirrors.json          # 仓库根数据文件：首页公告 / 更新加速镜像列表（运行时远程拉取）
 baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/删除）
 ```
 
@@ -80,6 +84,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 
 ```text
 ┌─────────────────────── Baihe.Host (WPF 进程) ───────────────────────┐
+│  App.xaml.cs  单实例 Mutex（防多开，激活已有窗口后退出）              │
 │  MainWindow (Window)                                                 │
 │   ├─ TitleBar.xaml  原生标题栏/交通灯（前端不负责窗口控制）           │
 │   ├─ WebView2  ← WebViewHost: 虚拟主机 https://baihe.app/ → wwwroot  │
@@ -90,7 +95,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 │         │   RegisterHostCommands()  所有命令在此注册                 │
 │         │        │                                                   │
 │         │   ┌────┴─────────────────────────────┐                    │
-│         │   │  Services/（18 静态服务 + Tray 实例）│                │
+│         │   │  Services/（23 静态服务 + Tray 实例）│                │
 │         │   └──────────────────────────────────┘                    │
 │  TrayService (NotifyIcon)   遥测/更新/认证 → 网络                    │
 └──────────────────────────────────────────────────────────────────────┘
@@ -101,15 +106,16 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 │  lib/ipc.ts   ipc<T>(cmd,args) 请求-响应 + on(type,cb) 推送订阅       │
 │  lib/router.svelte.ts   轻量路由（$state 页面 key，无路由库）         │
 │  lib/theme.svelte.ts    主题（localStorage + 通知后端）               │
+│  lib/shaders.ts         预装光影元数据（描述/预览图，v1.1.3+）        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **关键架构决策**：
 
 1. **WPF + WebView2 + Svelte 混合**：窗口框架/标题栏/托盘/文件系统/进程用原生 C#，UI 全用 Web 技术渲染。前后端完全通过 JSON IPC 解耦，前端不直接碰文件系统。
-2. **前端构建产物直接进 Host**：Vite outDir 指向 `../Baihe.Host/wwwroot`，WebView2 通过 `SetVirtualHostNameToFolderMapping` 以 `https://baihe.app/` 加载；入口 URL 带 `?v={unix秒}` 时间戳做缓存清除。
+2. **前端构建产物直接进 Host**：Vite outDir 指向 `../Baihe.Host/wwwroot`，WebView2 通过 `SetVirtualHostNameToFolderMapping` 以 `https://baihe.app/` 加载；入口 URL 带 `?v={unix秒}` 时间戳做缓存清除。csproj 另有 `<Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest">` 把 wwwroot 复制到输出目录（文档 v1 遗漏此项）。
 3. **IPC 为纯 JSON 命令总线**：请求-响应（id 配对 + 15s 超时）+ 主动推送（PushEvent）+ 两条特殊原始消息（见 §7）。
-4. **静态服务 + 单账户**：所有业务服务是静态类（`TrayService` 除外，MainWindow 持有实例）；账户是全局单账户模式。
+4. **静态服务 + 单账户**：除 TrayService 外全部业务服务是静态类；账户是全局单账户模式。
 5. **PCL2-CE 不参与构建**：Baihe.Host.csproj 无任何 PCL 引用，仅作参考源码。
 
 ---
@@ -119,26 +125,31 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 ### 4.1 状态与路由
 
 - **路由**：`lib/router.svelte.ts` 用 `$state` 维护 `current: PageKey`（home | download | settings | tools | login），无路由库，页面在 `App.svelte` 里 `{#if}` 条件渲染。聊天页不走路由，通过 `nav.external` IPC 让后端 `Navigate(url)`。
+- **主导航 4 项（本次新增调整）**：`navItems` = 启动 / **指南**（维基，本次新增）/ 设置 / 工具。**下载页已移出主导航**，入口改为 设置 → 开发者 →「版本下载」按钮（`router.navigate('download')`）；登录页不占导航，点侧边栏用户区进入。
 - **Svelte 5 runes 约定**：在 .ts 里使用 runes 必须用 `.svelte.ts` 扩展名（router/theme/toast 都是如此）。
 - **单例 store**：router、theme、toast 均为模块级单例（class + `$state`）。
 - **入口**：`main.ts` 挂载前注册 `window.onerror` / `unhandledrejection` 全局错误捕获，出错时把加载屏替换为错误信息（避免白屏）。
+- **头像**：`localStorage['baihe_avatar']` 存 base64 data URL（Settings 页用 canvas 居中裁剪为 64×64 PNG，限 2MB），纯前端实现不落盘后端。
 
-### 4.2 组件与页面 → IPC 使用矩阵（核验自源码）
+### 4.2 组件与页面 → IPC 使用矩阵（核验自源码 v1.1.9）
 
 | 文件 | 职责 | 用到的 IPC 命令 | 订阅的推送事件 |
 |---|---|---|---|
 | App.svelte | 根组件：WindowShell + Sidebar + 页面路由 + 微信名弹窗 + Toast 容器 | `wechat.get` | — |
 | WindowShell.svelte | 纯内容容器（标题栏已迁到 WPF 原生） | — | — |
-| Sidebar.svelte | 240px 毛玻璃侧边栏：用户区 + 导航 + 版本号；监听 router 变化重载账户 | `auth.current` | — |
+| Sidebar.svelte | 240px 毛玻璃侧边栏：用户区 + 导航 + 版本号；监听 router 变化重载账户 | `auth.current`、`app.getVersion` | — |
 | WeChatDialog.svelte | 首次启动微信名收集弹窗（IPC 失败也弹） | `wechat.set` | — |
 | Icon.svelte | 图标组件（见 4.4） | — | — |
-| Home.svelte | 启动主页：当前实例卡片 + 启动按钮 + 快捷工具 + 新闻 + 服务器状态 + 更新横幅 | `instance.current`、`auth.hasAccount`、`update.check`、`server.status`、`launch.start`、`open.url` | `launch.state`、`launch.started`、`launch.exited` |
-| Download.svelte | 版本下载 / Fabric 安装 | `version.list`、`instance.list`、`download.start`、`fabric.install` | `download.progress/complete/error`、`fabric.progress/complete/error` |
-| Settings.svelte | 账户/游戏/外观/关于/开发者 五分类设置 | `auth.current`、`app.getVersion`、`system.memory`、`update.check`、`java.bundled`、`java.detect`、`settings.get`、`settings.set`、`auth.offline`（改名）、`open.url` | — |
+| Home.svelte | 启动主页：实例卡片 + 启动按钮 + 服务器选择 + 快捷工具 + 新闻列表 + 服务器状态 + 更新横幅 | `instance.current`、`auth.hasAccount`、`update.check`、`server.status`、`launch.start`、`news.list`、`open.url`、`servers.list` | `launch.state`、`launch.started`、`launch.exited` |
+| Wiki.svelte | 玩家指南维基（本次新增）：分级导航 + 全文搜索 + 高亮 | —（内容为前端内置数据 lib/wiki/*.ts） | — |
+| Download.svelte | 版本下载 / Fabric 安装（开发者入口） | `version.list`、`instance.list`、`download.start`、`fabric.install` | `download.progress/complete/error`、`fabric.progress/complete/error` |
+| Settings.svelte | 账户/游戏/外观/关于/开发者 五分类设置（开发者需密码 `111125hj`） | `auth.current`、`app.getVersion`、`system.memory`、`update.check({force:true})`、`java.bundled`、`java.detect`、`settings.get`、`settings.set`、`auth.offline`（改名）、`open.url` | — |
 | Login.svelte | 三种登录方式 Tab（离线/微软/第三方） | `auth.setOffline`、`auth.msLogin`、`auth.msCancel`、`auth.thirdPartyLogin` | `auth.msDeviceCode`、`auth.msLoginResult` |
-| Tools.svelte | Mod/存档/截图/修复 + 聊天入口 | `mods.list`、`saves.list`、`saves.backups`、`screenshots.list`、`mods.toggle`、`mods.delete`、`mods.openFolder`、`saves.backup`、`saves.restore`、`saves.deleteBackup`、`tools.openFolder`、`tools.repair`、`nav.external`（聊天） | — |
+| Tools.svelte | 工具页 5 Tab：Mod / **光影** / 截图 / 修复 / 聊天（聊天受开发者开关控制） | `mods.list`、`mods.toggle`、`mods.delete`、`mods.openFolder`、`screenshots.list`、`tools.openFolder`、`tools.repair`、`nav.external`（聊天） | — |
+| ShadersPanel.svelte | 光影管理面板（v1.1.3+）：列表/启用/关闭/删除/打开文件夹，悬浮显示介绍 | `shaders.list`、`shaders.enable`、`shaders.disable`、`shaders.delete`、`shaders.openFolder` | — |
+| SaveManager.svelte | 存档备份面板（v1.1.3+，位于设置→开发者）：存档列表 + 备份/恢复/删除 | `saves.list`、`saves.backups`、`saves.backup`、`saves.restore`、`saves.deleteBackup` | — |
 
-> 注意：Home 不调用 `instance.list`，直接 `instance.current`（后端返回当前选中实例）；Settings 改名走 `auth.offline`；聊天入口只在 Tools 页（`nav.external → https://chat.hhj520.top`）。
+> 注意：Home 不调用 `instance.list`，直接 `instance.current`；Settings 改名走 `auth.offline`；**存档管理（saves.\*）已从工具页移到设置→开发者（SaveManager）**；聊天入口在工具页 Tab（`nav.external → https://chat.hhj520.top`），是否显示由 `localStorage['baihe_chat_enabled']` 控制（开发者选项开关）。
 
 ### 4.3 设计令牌系统（改 UI 必读）
 
@@ -153,7 +164,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 ### 4.4 Icon 图标系统
 
 - `Icon.svelte` 用 `import.meta.glob('./icons/*.svg', { query: '?raw', eager: true })` 加载全部图标（当前 14 个，命名 `image_N[_hash].svg`），正则 `image_(\d+)` 提取 key。
-- `aliasMap` 把语义名映射到 `image_N`（user/circle-play/arrow-down/grip/box/plus/upload/package/search/check-circle/palette/info/download/message-circle 等）。
+- `aliasMap` 把语义名映射到 `image_N`（user/circle-play/arrow-down/grip/box/plus/upload/package/search/check-circle/palette/info/download/message-circle/settings 等，`settings` 复用 `image_3`）。
 - **已知占位**：`circle-x` 映射到 `image_11`（info 图标），注释说明图标集暂无 close/x 图标——以后补图标时要改这里。
 - 新增图标 = 放 svg 文件 + 加 aliasMap 条目，无需其他改动。
 
@@ -167,32 +178,37 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 
 ## 5. 后端架构（Baihe.Host）
 
-### 5.1 服务清单（Services/，全部核验）
+### 5.1 服务清单（Services/，全部核验 v1.1.9）
 
 | 服务 | 行数(约) | 职责 | 关键点 |
 |---|---|---|---|
-| MainWindow.xaml.cs | 719 + Chat partial | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands）；聊天注入在 MainWindow.Chat.cs |
-| LaunchService | 1113 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控 |
-| NbtHelper | — | Minecraft NBT 格式通用读写 | 大端序（BinaryPrimitives.*BigEndian）；servers.dat 未压缩 |
-| ServerListService | — | 自动把白鹤服务器加入 servers.dat | 启动游戏前调用；同 ip 条目自动改名「白鹤服务器」，幂等 |
-| DownloadService | 490 | 下载管线 | SHA1 校验 + 6 并发 + 进度推送；`.tmp` 临时文件校验后改名 |
-| MicrosoftAuthService | 706 | 微软设备码登录 + 令牌刷新 | 6 步流程，Xerr 错误码映射 |
-| ThirdPartyAuthService | 384 | Yggdrasil/Authlib-Injector | ALI 指示解析（≤5 次重定向）、LittleSkin 预设 |
-| AuthService | 82 | 统一账户管理（缓存 + 持久化） | 单账户模式，account.json |
-| SettingsService | 203 | 用户设置 + 内存检测/推荐 | P/Invoke GlobalMemoryStatusEx；推荐算法见 §8.5 |
-| VersionService | 130 | Mojang 版本清单（24h 缓存） | 自建 HttpClient（注释里的 NetworkService 已随 Core 删除，注释过时） |
-| InstanceService | 175 | 扫描实例 + 当前实例选择 | GetMcDirectory() 4 级路径回溯；Fabric 实例优先 |
-| JavaHostService | 125 | 检测捆绑 JRE / 系统 Java | `java -version` 输出在 **stderr** |
-| FabricService | 137 | Fabric Loader 安装 | 版本 ID = `{gameVersion}-fabric`；走 DownloadVersionFromJson |
-| ServerStatusService | 58 | 服务器在线检测（TCP ping） | 3s 超时，地址从 Settings 动态读 |
-| ModService | 171 | Mod 列表/启停/删除 | 启停 = 改 `.jar` ↔ `.jar.disabled` 后缀；版本专属 mods 目录优先 |
-| SaveService | 284 | 存档备份/导入/恢复 | zip + 临时目录；导入按 level.dat 识别 |
-| ToolService | 145 | 截图列表 / 打开文件夹 / 游戏修复 | 修复 = 完整性检查（报告型） |
-| TrayService | 154 | 系统托盘（WinForms NotifyIcon） | **唯一实例类**；三路图标加载兜底 |
-| UpdateService | 153 | GitHub Releases 更新检查 | 镜像列表自动更新（mirrors.json）+ 运行时测速选最快 |
-| TelemetryService | 182 | 遥测上报（每会话首次 + 服务端策略） | 见 §8.6 |
-| WeChatService | 71 | 微信名持久化（wechat.json） | 独立于账户 |
+| MainWindow.xaml.cs | 820 + Chat partial | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands）；聊天注入在 MainWindow.Chat.cs |
+| LaunchService | 1109 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控；含 CleanLauncherProfilesGameDir |
+| NbtHelper | 479 | Minecraft NBT 格式通用读写 | 大端序（BinaryPrimitives.*BigEndian）；servers.dat 未压缩 |
+| ServerListService | 99 | 自动把白鹤服务器加入 servers.dat | 启动游戏前调用；同 ip 条目自动改名「白鹤服务器」，幂等 |
+| DownloadService | 468 | 下载管线 | SHA1 校验 + 6 并发 + 进度推送；`.tmp` 临时文件校验后改名 |
+| MicrosoftAuthService | 694 | 微软设备码登录 + 令牌刷新 | 6 步流程，Xerr 错误码映射 |
+| ThirdPartyAuthService | 371 | Yggdrasil/Authlib-Injector | ALI 指示解析（≤5 次重定向）、LittleSkin 预设 |
+| AuthService | 87 | 统一账户管理（缓存 + 持久化） | 单账户模式，account.json；RefreshIfExpired 只处理 Microsoft |
+| SettingsService | 204 | 用户设置 + 内存检测/推荐 | P/Invoke GlobalMemoryStatusEx；推荐算法见 §8.5 |
+| VersionService | 126 | Mojang 版本清单（24h 缓存） | 自建 HttpClient（注释里的 NetworkService 已随 Core 删除，注释过时） |
+| InstanceService | 168 | 扫描实例 + 当前实例选择 | GetMcDirectory() 4 级路径回溯；Fabric 实例优先 |
+| JavaHostService | 123 | 检测捆绑 JRE / 系统 Java | `java -version` 输出在 **stderr** |
+| FabricService | 131 | Fabric Loader 安装 | 版本 ID = `{gameVersion}-fabric`；走 DownloadVersionFromJson |
+| ServerStatusService | 54 | 服务器在线检测（TCP ping） | 3s 超时，地址从 Settings 动态读 |
+| ModService | 401 | Mod 列表/启停/删除 | **v1.1.8 增强：fabric.mod.json 元数据 + 图标提取（base64 data URL）+ 中文名映射表（14 个），均带 mtime/size 缓存**；启停 = 改 `.jar` ↔ `.jar.disabled`；**统一用全局 mods 目录（版本专属目录不被游戏加载，v1.1.2 修复）** |
+| SaveService | 280 | 存档备份/导入/恢复 | zip + 临时目录；导入按 level.dat 识别 |
+| ShaderService | 230 | 光影管理（v1.1.3+） | 扫描 shaderpacks/*.zip；启用状态读写 `.minecraft/config/iris.properties`（shaderPack= / enableShaders=） |
+| ToolService | 144 | 截图列表 / 打开文件夹 / 游戏修复 | 修复 = 完整性检查（报告型） |
+| TrayService | 144 | 系统托盘（WinForms NotifyIcon） | **唯一实例类**；三路图标加载兜底 |
+| UpdateService | 511 | GitHub Releases 更新检查 | **1h 结果缓存（cache/update_check.json）+ 10min 测速缓存 + `force` 参数强制刷新**；镜像列表自动更新（mirrors.json）+ 运行时测速选最快 |
+| TelemetryService | 175 | 遥测上报（每会话首次 + 服务端策略） | 见 §8.6 |
+| WeChatService | 68 | 微信名持久化（wechat.json） | 独立于账户 |
+| NewsService | 78 | 首页「最新动态」（v1.1.8+） | 拉取仓库 news.json（4s 超时）失败回退内置 3 条；远程增删公告无需发版 |
+| MinecraftRules | 67 | 版本 JSON rules 检查（v1.1.6+） | 统一 LaunchService(JsonNode) 与 DownloadService(JsonElement) 的 rules 过滤语义 |
 | FormatHelper | 15 | 字节大小格式化 | 被多处复用 |
+
+> 共 24 个服务文件（23 静态类 + TrayService 实例类）。相对文档 v1 新增：**ShaderService / NewsService / MinecraftRules**；TelemetryService 保留（v1 表格误删）。
 
 ### 5.2 模型（Models/）
 
@@ -220,8 +236,9 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 |---|---|---|---|
 | ping | — | "pong" | 存活检测（IpcRouter 内置） |
 | window.close/minimize/maximize | — | true | 窗口控制（Dispatcher 封送） |
-| app.getVersion | — | 版本字符串 | 优先 FileVersion（Release 从 tag 注入），`ToString(3)` 去尾 .0 |
-| update.check | — | UpdateInfo | GitHub Releases，10s 超时，失败静默返回无更新 |
+| app.getVersion | — | 版本字符串 | 优先 FileVersion（Release 从 tag 注入），回退 AssemblyVersion（无硬编码） |
+| update.check | {force?} | UpdateInfo | GitHub Releases；**v1.1.5+ 有 1h 结果缓存，`force:true` 强制刷新**；失败静默返回无更新 |
+| news.list | — | NewsItem[] | 首页最新动态（v1.1.8+）：拉取仓库 news.json，失败回退内置 |
 | version.list | typeFilter? | {latest, versions[]} | Mojang 清单（24h 缓存） |
 | instance.list | — | GameInstance[] | 扫描 versions/ |
 | instance.current | — | GameInstance | 当前实例（无实例时后端 `!` 解引用可能抛错，前端 Home 有兜底） |
@@ -233,7 +250,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | auth.thirdPartyLogin | {serverUrl,username,password} | {success,username,error} | 同步请求-响应 |
 | java.detect | — | 系统 Java 数组 | PATH 查找 |
 | java.bundled | — | {found,path,version} | 捆绑 JRE（含开发环境回溯） |
-| launch.start | {instanceId?} | {success,processId,error} | 含账户检查 + 微软令牌刷新 + 遥测上报 |
+| launch.start | {instanceId?, serverAddress?, serverPort?} | {success,processId,error} | 含账户检查 + 微软令牌刷新 + 遥测上报；**serverAddress/serverPort 可选覆盖 QuickPlay 目标（服务器列表选择，本次新增）** |
 | launch.status | — | {state,message,processId} | 启动状态 |
 | download.start | versionId | {success,message} | 异步（Task.Run，不阻塞响应） |
 | download.status | — | {isDownloading,error} | 下载状态 |
@@ -241,11 +258,19 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | fabric.loaders | gameVersion | {gameVersion,loaders[]} | 查询 Loader |
 | settings.get | — | LauncherSettings | 读取设置 |
 | settings.set | 部分字段对象 | LauncherSettings | 逐字段更新（有上下限钳制） |
-| server.status | — | {online,latency,address,port} | 服务器状态 |
-| mods.list | — | ModInfo[] | Mod 列表（含禁用） |
+| server.status | {serverAddress?, serverPort?} | {online,latency,address,port} | 服务器状态（本次新增：可选覆盖目标服务器） |
+| servers.list | — | ServerEntry[] | 服务器列表（本次新增，servers.json，内置白鹤服务器） |
+| servers.add | {name,address,port} | {success,entry?,error} | 新增服务器（同地址同端口去重，本次新增） |
+| servers.remove | id | {success} | 删除服务器（内置默认条目不可删，本次新增） |
+| mods.list | — | ModInfo[] | Mod 列表（含禁用；v1.1.8+ 含 iconDataUrl/chineseName/description） |
 | mods.toggle | fileName | {success,enabled} | 启停 Mod |
 | mods.delete | fileName | {success} | 删除 Mod |
 | mods.openFolder | — | {success,path} | 打开 mods 目录 |
+| shaders.list | — | {fileName,displayName,size,sizeText,enabled}[] | 光影列表（v1.1.3+，启用项排前） |
+| shaders.enable | fileName | {success,enabled,error} | 启用光影（写 iris.properties；传空串=仅开光影不指定包） |
+| shaders.disable | — | {success} | 关闭光影（enableShaders=false） |
+| shaders.delete | fileName | {success,error} | 删除光影包（删除当前启用项时同步清空 shaderPack） |
+| shaders.openFolder | — | {success,path} | 打开 shaderpacks 目录 |
 | saves.list | — | SaveInfo[] | 存档列表 |
 | saves.backup | saveName | {success,backupName,...} | 备份为 zip |
 | saves.import | zipPath | 导入结果 | 导入存档 |
@@ -283,7 +308,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 
 ## 7. 核心业务流程
 
-### 7.1 启动流程（LaunchService.Launch，1113 行）
+### 7.1 启动流程（LaunchService.Launch，1109 行）
 
 ```text
 launch.start（MainWindow 先做账户检查：无账户→报错；微软→RefreshIfExpired）
@@ -300,7 +325,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
   → isFabric = mainClass 含 fabric/knot
   → GetLog4jConfigPath（logging.client.file.id → assets/log_configs/）
   → BuildJvmArgs + BuildGameArgs（手动拼，不解析 arguments.jvm/game）
-  → EnsureOptionsTxt（onboardAccessibility:false 跳过无障碍引导、joinedFirstServer:true、tutorialStep:none、lang:zh_cn）
+  → EnsureOptionsTxt（onboardAccessibility:false 跳过无障碍引导、joinedFirstServer:true、tutorialStep:none、lang:zh_cn、**serverResourcePacks:true 允许服务器资源包（本次新增）**）
   → 写 launch_cmd.log（完整命令行）
   → Process.Start（javaw，UseShellExecute=false，WorkingDirectory=.minecraft，**APPDATA=.minecraft**）
   → PushEvent launch.started{processId}
@@ -311,7 +336,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 
 **启动参数要点**（改启动行为必读）：
 - 用户类型固定 `--userType msa`（注释：offline 会触发 "Unrecognized user type" 警告）。
-- QuickPlay：`majorVersion >= 21` 用 `--quickPlayMultiplayer host:port`，旧版用 `--server/--port`（主版本号从版本 ID 正则 `1\.(\d+)` 提取）。
+- QuickPlay：`majorVersion >= 21` 用 `--quickPlayMultiplayer host:port`，旧版用 `--server/--port`（主版本号从版本 ID 正则 `1\.(\d+)` 提取）。**本次新增：目标服务器可被 launch.start 的 serverAddress/serverPort 覆盖（服务器列表选择），未指定时用 settings 默认值**。
 - Fabric 额外加 `-DFabricMcEmu= net.minecraft.client.main.Main`（**等号后有空格**，Fabric Loader 特有设计）。
 - 内存：`-Xmx` + `-Xmn`（新生代 = 15%）；log4j 防御 `-Dlog4j2.formatMsgNoLookups=true`；堆转储路径 MojangTricksIntelDrivers...。
 - `--accessToken` 直接透传；离线账户 AccessToken="offline-token"。
@@ -335,9 +360,19 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
   - authenticate → 无 selectedProfile 时取 availableProfiles[0] 并 refresh 绑定角色；clientToken 存入 `RefreshToken` 字段；`Password` 存入账户对象（**明文，见 §10 问题**）。
   - 预设服务器：LittleSkin `https://littleskin.cn/api/yggdrasil`。
 
-### 7.4 更新流程（UpdateService）
+### 7.4 更新流程（UpdateService，v1.1.5+ 带缓存）
 
-`GET https://api.github.com/repos/pkoiuu/mcbh/releases/latest`（15s 超时，带 UA）→ 解析 tag_name（去 v）、找 .exe asset 的 browser_download_url → **镜像列表自动更新**（并行拉取仓库 `mirrors.json`，失败用内置兜底列表）→ 对真实下载 URL **并行测速**（普通 GET 读前 512KB 计时，不用 Range——部分镜像不支持）选**最快**镜像 → 全部失败回退 GitHub 直链 → `Version` 比较 → 失败静默返回无更新。返回含 `DownloadSource`（加速源主机名）与 `DownloadSpeedMBps`（测速结果，前端展示）。注意：**这里只用 `Assembly.GetName().Version`，而 app.getVersion 用 FileVersion——两处取版本的方式不同**（Release 下 FileVersion 由 tag 注入，AssemblyVersion 同样由 tag 注入，一般一致）。
+`GET https://api.github.com/repos/pkoiuu/mcbh/releases/latest`（15s 超时，带 UA）→ 解析 tag_name（去 v）、找 .exe asset 的 browser_download_url → **镜像列表自动更新**（并行拉取仓库 `mirrors.json`，失败用内置兜底列表）→ 对真实下载 URL **并行测速**（普通 GET 读前 512KB 计时，不用 Range——部分镜像不支持）选**最快**镜像 → 全部失败回退 GitHub 直链 → `Version` 比较 → 失败静默返回无更新。返回含 `DownloadSource`（加速源主机名）与 `DownloadSpeedMBps`（测速结果，前端展示）。
+
+**缓存（v1.1.5+）**：成功结果写入 `cache/update_check.json`（TTL 1h），测速结果有 10min 内存缓存；`update.check({force:true})`（设置页「检查更新」按钮）绕过结果缓存强制刷新。注意：**这里只用 `Assembly.GetName().Version`，而 app.getVersion 用 FileVersion——两处取版本的方式不同**（Release 下两者都由 tag 注入，一般一致）。
+
+### 7.6 光影流程（ShaderService，v1.1.3+）
+
+光影包 = 放入 `.minecraft/shaderpacks/*.zip` 的 zip 文件，Iris 识别；当前启用项记录在 `.minecraft/config/iris.properties`（`enableShaders=true` + `shaderPack=<文件名>`，无该文件时自动创建默认）。`shaders.enable` 写两个字段；`shaders.disable` 写 `enableShaders=false` + 清空 shaderPack；删除当前启用项时同步清空。**Iris 需作为 Mod 启用**，且光影生效需重启游戏（前端有提示）。预装 4 个光影包（Complementary/BSL/Sildur's/MakeUp）的说明与预览图在前端 `lib/shaders.ts`（按 fileName 匹配，用户自装包无元数据显示通用信息）。
+
+### 7.7 Mod 元数据与中文名（ModService，v1.1.8+）
+
+`mods.list` 时逐个打开 jar 读 `fabric.mod.json`/`quilt.mod.json`：`name`（真实显示名）+ `description`（介绍）+ `icon`（图标文件，支持字符串或 sizes 对象取最大，提取为 base64 data URL，≤1MB）。**中文名映射表 `ChineseNameMap`**（14 个：sodium→钠、iris→Iris 光影、imblocker→输入法冲突修复 等）按 mod id 精确匹配 → displayName 模糊匹配 → 回退原名。解析结果按文件名缓存（mtime/size 变化才失效），避免每次列表都解压 jar。
 
 ### 7.5 遥测流程（TelemetryService）
 
@@ -354,14 +389,18 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 | settings.json | LauncherSettings（9 字段，首启用内存推荐初始化） | SettingsService |
 | account.json | McAccount（**明文 JSON，含第三方密码**） | AccountStore |
 | wechat.json | 微信名 | WeChatService |
+| servers.json | 服务器列表 ServerEntry[]（本次新增，首启用内置白鹤服务器） | ServerEntryService |
 | cache/version_manifest.json | Mojang 清单（24h） | VersionService |
+| cache/update_check.json | 更新检查结果（1h，v1.1.5+） | UpdateService |
 | current_instance.txt | 选中实例 ID | InstanceService |
 | launch_cmd.log / launch_error.log | 启动命令/错误诊断 | LaunchService |
 | servers.dat（.minecraft/） | Minecraft 多人游戏服务器列表（NBT） | ServerListService 启动时确保「白鹤服务器」在列 |
+| .minecraft/config/iris.properties | 光影开关 + 当前启用包（v1.1.3+） | ShaderService |
+| .minecraft/shaderpacks/ | 光影包 zip（预装 4 个） | ShaderService / 用户 |
 | natives_debug.log / debug-paths.txt | 调试日志 | LaunchService / WebViewHost |
 | .minecraft/** | 游戏目录（.minecraft 由 GetMcDirectory 定位） | 各服务 |
 
-> 所有服务都是静态类，把状态缓存在 static 字段里（`_cached`、`_currentAccount`、`_state`、`_isDownloading`、`_hasReportedThisSession`），单例便利但线程安全与测试性差（见 §10）。
+> 所有服务都是静态类，把状态缓存在 static 字段里（`_cached`、`_currentAccount`、`_state`、`_isDownloading`、`_hasReportedThisSession`），单例便利但线程安全与测试性差（见 §10）。v1.1.6 起部分服务已加锁/并发集合（SettingsService `_cacheLock`、ModService ConcurrentDictionary、UpdateService 缓存），但整体仍是静态状态模式。
 
 ---
 
@@ -391,25 +430,26 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 
 打 tag `v*` → windows-latest：
 1. **五路并行准备**：① jlink 构建 JRE（20 模块，`--compress=2 --strip-debug`）② 下载 WebView2 离线安装包（fwlink）③ `gh release download v1.0-assets --pattern minecraft.7z` 解压出 .minecraft ④ dotnet restore ⑤ pnpm install + build（前台）。
-2. `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:AssemblyVersion=$version -p:FileVersion=$version`（**版本号从 tag 注入**：v1.1.1 → 1.1.1）。
-3. 复制 icon.ico、fabric-installer.jar → dist/launcher。
+2. `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:PublishTrimmed=false -p:AssemblyVersion=$version -p:FileVersion=$version`（**版本号从 tag 注入**：v1.1.9 → 1.1.9，`-m` 多进程 + `--no-restore`）。
+3. 复制 icon.ico、fabric-installer.jar → dist/launcher；信息性步骤校验 dist 内容（wwwroot/jre/.minecraft/mods/.fabric 等）。
 4. `ISCC.exe /DMyAppVersion=$version installer\baihe_installer.iss`（Inno Setup 6）。
-5. softprops/action-gh-release 上传 `dist/白鹤服务器启动器_Setup_*.exe`。
+5. softprops/action-gh-release 上传 `dist/BaiheServer_Setup_v*.exe`（**ASCII 文件名**，GitHub runner 上中文名会丢失；安装包显示名仍为「白鹤服务器启动器」）。
 
 > .minecraft（约 1.3GB）不进 git，存于 release asset `v1.0-assets`，更新游戏文件后跑 `scripts/upload-minecraft-assets.ps1` 重新上传（7z -mx=9，排除 logs/crash-reports/downloads/servers.dat_old 等）。
+> CI 与 Release 均已加 **pnpm store / node_modules 与 NuGet 缓存**（actions/cache，按 lock/csproj 哈希做 key）。
 
 ### 9.4 安装器（installer/baihe_installer.iss）
 
-- 安装目录 `%LOCALAPPDATA%\BaiheServer`，`PrivilegesRequired=lowest`（免管理员）。
+- 安装目录 `%LOCALAPPDATA%\BaiheServer`，`PrivilegesRequired=lowest`（免管理员）；默认版本宏 `MyAppVersion "1.1.9"`（Release 用 /D 覆盖）。
 - **升级检测**：固定 AppId（`{8F2B7A3C-...}`）+ UsePreviousAppDir。
-- **升级/安装前杀进程**：`InitializeSetup` / `PrepareToInstall` / `InitializeUninstall` 三重检查 `tasklist` + `taskkill /T /F`（含 WebView2 子进程），用户可取消。
+- **升级/安装前杀进程**：`InitializeSetup` / `PrepareToInstall` / `InitializeUninstall` 三重检查 `tasklist` + `taskkill /T /F`（含 WebView2 子进程），用户可取消；PrepareToInstall 最多重试 3 次。
 - **文件分层**：
   - 启动器本体 `dist\launcher\*` 排除 jre、WebView2 安装包、`settings.json`、`account.json`、`current_instance.txt`、`*.log`、`debug-*.txt`、`cache\*`、`Baihe.exe.WebView2\*`（**升级保留用户配置**）。
-  - `.minecraft\versions|libraries|assets|.fabric` 始终覆盖（ignoreversion）。
-  - `mods\*` 始终更新同名文件（用户自加 mod 不受影响）。
+  - `.minecraft\versions|libraries|assets|mods|shaderpacks` 始终覆盖（ignoreversion；mods/shaderpacks 只更新同名文件，用户自加的不受影响）。
   - `options.txt`、`servers.dat`、`config\*`、`launcher_profiles.json` 用 `onlyifdoesntexist uninsneveruninstall`（首装写入、升级不覆盖、卸载保留）。
+  - **[InstallDelete]（v1.1.6+）**：升级时清理旧版内置版本目录（`versions\1.21.3`、`fabric-loader-0.16.14-1.21.3`）与旧版 1.21.3/1.21.2 模组文件（防新老版本模组共存崩溃）——以后换内置 MC 版本需同步维护此段。
 - **卸载保留**用户数据（saves/options.txt/screenshots/config 等），只删 logs/crash-reports/downloads。
-- [Run] 检测 WebView2（注册表 `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`）未装则静默安装。
+- [Run] 检测 WebView2（注册表 `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`）未装则静默安装；快捷方式用 `{userdesktop}`（lowest 权限下 commondesktop 不可写）。
 
 ### 9.5 脚本（scripts/）
 
@@ -422,22 +462,26 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 ## 10. 关键约定与踩坑（修改前必读）
 
 1. **csproj 手动列文件**：因 .NET 10 SDK glob 展开 bug，`EnableDefaultCompileItems=false` / `EnableDefaultPageItems=false`，**新增 .cs 必须手动加 `<Compile Include>`，新增 XAML 加 `<Page Include>`**。漏加会出现「文件存在但没被编译」的诡异问题。
-2. **前端产物目录命名**：用 `wwwroot` 而非 assets，避免与 `Assets/icon.ico` 在 Windows 不区分大小写下冲突。
+2. **前端产物目录命名**：用 `wwwroot` 而非 assets，避免与 `Assets/icon.ico` 在 Windows 不区分大小写下冲突。csproj 已含 `<Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest">`，发布时 wwwroot 自动进输出。
 3. **WebView2 兼容插件**：vite.config.ts 的 removeCrossOrigin 移除 crossorigin、`type="module"` 换 `defer`（虚拟主机映射对 ESM 支持不完整）。
 4. **.svelte.ts 扩展名**：在 .ts 里用 Svelte 5 runes 必须用该扩展名（router/theme/toast）。
 5. **Fabric 合并后丢失 parentId**：启动逻辑在 LoadAndMergeVersion 之前先读原始 JSON 拿 inheritsFrom。
 6. **Java 检测**：`java -version` 输出到 stderr，不是 stdout。
 7. **微软登录是异步推送模式**：`auth.msLogin` 立即返回，结果靠 `auth.msLoginResult` 推送，前端不能在请求响应里等。
-8. **窗口关闭 = 最小化到托盘**：OnClosing 拦截首次关闭，真正退出走托盘「退出」菜单（Application.Shutdown）。
-9. **CSP**：前端大量 `javascript:void(0)` 与内联 onclick（Svelte 事件），WebView2 未启用严格 CSP，本项目可放心用内联事件（与 fuwari-blog 的严格 CSP 完全不同）。
-10. **静态服务 + 静态状态**：所有服务是静态类，IPC 多线程（IpcRouter 用 ConcurrentDictionary），改状态时注意竞态。
-11. **`vite build` 不会清空 wwwroot 旧文件**：`emptyOutDir: true` 只对项目根内的 outDir 生效，而 wwwroot 在 Baihe.UI 项目根**之外**（`../Baihe.Host/wwwroot`）。实测 wwwroot 里堆积了 60+ 个历史哈希资产（index-*.js/css 多版本并存）。建议：build 前手动清空 wwwroot，或把 outDir 改为项目内目录再复制。
+8. **窗口关闭 = 最小化到托盘**：OnClosing 拦截首次关闭，真正退出走托盘「退出」菜单（Application.Shutdown）；配合 App.xaml.cs 单实例 Mutex（v1.1.9）。
+9. **CSP**：前端大量 `javascript:void(0)` 与内联 onclick（Svelte 事件），WebView2 未启用严格 CSP，本项目可放心用内联事件（与 fuwari-blog 的严格 CSP 完全不同）。v1.1.8 已清理大部分 `javascript:void(0)`。
+10. **静态服务 + 静态状态**：所有服务是静态类，IPC 多线程（IpcRouter 用 ConcurrentDictionary），改状态时注意竞态。v1.1.6 起 Settings/Download/Launch 已加锁，Mod/Update 用 ConcurrentDictionary，新增服务请照此办理。
+11. **`vite build` 不会清空 wwwroot 旧文件**：`emptyOutDir: true` 只对项目根内的 outDir 生效，而 wwwroot 在 Baihe.UI 项目根**之外**（`../Baihe.Host/wwwroot`）。**核验时（v1.1.9）wwwroot 是干净的（仅 1 套哈希资产）**，但换版本构建时建议 build 前手动清空 wwwroot 或改 outDir 策略，避免历史资产堆积进安装包。
 12. **明文密码**：`McAccount.Password` 注释声称「加密存储」，但 AccountStore 只是 JSON 序列化，第三方密码以明文写入 account.json——安全风险。
 13. **第三方令牌刷新是死代码**：`ThirdPartyAuthService.Refresh()` 存在但从未被调用；`AuthService.RefreshIfExpired` 只处理 Microsoft。第三方 accessToken 过期后没有刷新路径（Yggdrasil token 通常长期有效，但规范上应支持）。
 14. **注释过时**：VersionService.cs 头部注释提到「使用 NetworkService 预配置的 HttpClient」，但 NetworkService 已随 Baihe.Core 删除，实际是自建 HttpClient。
-15. **app.getVersion 硬编码回退** "1.1.1"（MainWindow），改版本号要同步改 csproj 的 AssemblyVersion/FileVersion + tag + iss 默认值（/DMyAppVersion 覆盖）。
+15. ~~**app.getVersion 硬编码回退 "1.1.1"**~~ **已修复（v1.1.6+）**：现优先 FileVersion、回退 AssemblyVersion，无硬编码。改版本号只需 csproj 的 AssemblyVersion/FileVersion + tag + iss 默认值（/DMyAppVersion 覆盖）。
 16. **instance.current 无实例时**：后端 `GetCurrentInstance()` 返回 null 时命令用 `!` 强制解引用可能抛异常（前端 Home 有「暂无游戏实例」兜底）。
 17. **WeChat 弹窗**：`wechat.get` IPC 失败也会弹窗（onMount 中 catch 分支），属有意设计。
+18. **开发者密码硬编码在前端**（Settings.svelte `111125hj`）——不是安全机制，只是防误触；开发者选项含聊天开关（`localStorage['baihe_chat_enabled']`）、版本下载入口、存档备份面板。
+19. **单实例 Mutex 名称硬编码**（App.xaml.cs `BaiheServerLauncher_SingleInstance_Mutex_8F2B7A3C`）与 Inno AppId 前缀一致；改名/换 AppId 时两者要同步。
+20. **光影只认 `.minecraft/mods`（全局）**：ModService 明确注释版本专属 mods 目录不被游戏加载（v1.1.2 修复）；ShadersPanel 提示需启用 Iris mod 且重启游戏生效。
+21. **工具页 Tab 数据按需加载**（v1.1.9）：mods/screenshots 首次进入才拉取且带 `loaded` 缓存标志（防切 tab 卡顿），刷新按钮强制重拉——新增 Tab 时照此模式。
 
 ---
 
@@ -461,7 +505,13 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 
 **改 UI 样式**：颜色令牌只改 `app.css`；字体/间距直接 Tailwind 类。
 
-**发新版本**：csproj 版本号 → 更新 `.minecraft`（如需要）→ `scripts/upload-minecraft-assets.ps1` → 打 tag `vX.Y.Z` → release.yml 自动出安装包。
+**改首页公告（无需发版）**：编辑仓库根 `news.json`（数组 `news`：date/title/desc），启动器每次进主页拉取（4s 超时失败回退内置）。**改更新加速镜像（无需发版）**：编辑 `mirrors.json` 的 `mirrors` 数组。
+
+**新增预装光影包**：① 把 zip 放进 `installer_resources/.minecraft/shaderpacks/`（随 .minecraft 打包）② 前端 `lib/shaders.ts` 加元数据（fileName 必须与 zip 文件名一致）+ 预览图放 `src/assets/shaders/` ③ 如需改默认启用项，改 `installer_resources/.minecraft/config/iris.properties`。
+
+**新增预装 Mod**：① 放进 `installer_resources/.minecraft/mods/` ② 需要中文显示名时在 ModService `ChineseNameMap` 加映射（key 为 fabric.mod.json 的 id）。
+
+**发新版本**：csproj 版本号 → 更新 `.minecraft`（如需要）→ `scripts/upload-minecraft-assets.ps1` → 打 tag `vX.Y.Z` → release.yml 自动出安装包（`BaiheServer_Setup_vX.Y.Z.exe`）。
 
 ---
 
@@ -479,25 +529,27 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 
 ---
 
-## 13. 已知问题与改进建议（按优先级）
+## 13. 已知问题与改进建议（按优先级，核验至 v1.1.9）
 
 **高优先级（正确性/安全）**：
-1. 第三方密码明文存储（account.json）→ 用 Windows DPAPI（`ProtectedData`）加密。
-2. 第三方令牌刷新未接入 → 在 `launch.start` 里对 ThirdParty 也调 `Refresh()`。
-3. `instance.current` 的 `!` 解引用在无实例时会抛错 → 返回 null 让前端处理。
-4. wwwroot 旧资产堆积（见 §10.11）→ 构建脚本清空或改 outDir 策略，减小安装包体积。
+1. 第三方密码明文存储（account.json）→ 用 Windows DPAPI（`ProtectedData`）加密（仍未处理）。
+2. 第三方令牌刷新未接入 → 在 `launch.start` 里对 ThirdParty 也调 `Refresh()`（仍未处理）。
+3. `instance.current` 的 `!` 解引用在无实例时会抛错 → 返回 null 让前端处理（前端已有兜底，后端仍待修）。
+4. **开发者密码硬编码在前端**（Settings.svelte `111125hj`）→ 移到后端或去掉密码（本就不该是安全边界，至少别扩散）。
+5. 内置游戏（.minecraft）经 Inno 打包分发，涉及 Mojang EULA 与版权，属产品决策需注意。
 
 **中优先级（工程化）**：
-5. 静态服务无锁竞态（Settings/Auth/Launch/Download 的状态字段）→ 上锁或单例类。
-6. 更新检查与 app.getVersion 版本获取方式不一致（AssemblyVersion vs FileVersion）。
-7. 硬编码散落：遥测地址/ApiKey、GitHub repo、默认服务器 play.simpfun.cn:28230、聊天站点 hhj520.top → 收敛到配置。
-8. `OnWebMessageReceived` 是 `async void`，异常只进 Debug 输出 → 前端可能静默超时。
-9. README 构建说明与代码不一致（build-all.ps1、复制 assets 步骤）。
+6. 静态服务静态状态仍普遍（v1.1.6 起部分服务已加锁/并发集合，但 Auth/Launch 等仍是裸 static 字段）→ 逐步收敛。
+7. 更新检查与 app.getVersion 版本获取方式不一致（AssemblyVersion vs FileVersion，Release 下一般一致）。
+8. 硬编码散落：遥测地址/ApiKey、GitHub repo（pkoiuu/mcbh）、开发者密码、聊天站点 hhj520.top → 收敛到配置。
+9. `OnWebMessageReceived` 是 `async void`，异常只进 Debug 输出 → 前端可能静默超时。
+10. README 构建说明与代码不一致（build-all.ps1、复制 assets 步骤）。
+11. App.svelte 注释称页面「懒加载」但实际是静态 import（`{#if}` 全量渲染），页面体积大时考虑 Svelte 动态组件。
 
 **低优先级（体验）**：
-10. Icon 缺 close/x 图标（circle-x 占位到 info）。
-11. `saves.restore` 的旧目录改名逻辑与卸载保留策略需在 UI 上说明。
-12. 版本号回退硬编码 "1.1.1" 与 csproj 不同步会显示错版本。
+12. Icon 缺 close/x 图标（circle-x 占位到 info）。
+13. `saves.restore` 的旧目录改名逻辑与卸载保留策略需在 UI 上说明。
+14. 光影仅 zip 扫描，不支持目录型/展开型光影包（Iris 也支持文件夹式 shaderpack）；shaderpacks 子目录会被漏列。
 
 ---
 
@@ -506,12 +558,50 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 | 想改什么 | 看哪里 |
 |---|---|
 | 加 IPC 命令 | MainWindow.xaml.cs RegisterHostCommands + Services/ + ipc.ts |
+| 玩家指南/维基内容 | src/Baihe.UI/src/lib/wiki/*.ts（按章节拆分）+ pages/Wiki.svelte |
+| 服务器列表/QuickPlay 目标 | ServerEntryService + Home.svelte（服务器下拉）+ launch.start 参数 |
 | 启动参数/QuickPlay/内存 | LaunchService.BuildJvmArgs / BuildGameArgs |
 | 下载逻辑/并发/校验 | DownloadService |
 | 登录（微软/第三方/离线） | MicrosoftAuthService / ThirdPartyAuthService / AuthService |
 | 设置项 | SettingsService.LauncherSettings + Settings.svelte |
+| 光影管理 | ShaderService + ShadersPanel.svelte + lib/shaders.ts（元数据） |
+| 首页「最新动态」 | NewsService + 仓库根 news.json + Home.svelte |
+| Mod 列表/图标/中文名 | ModService（ChineseNameMap / 缓存）+ Tools.svelte mods Tab |
 | 主题/配色/图标 | app.css / Icon.svelte + lib/icons/ |
-| 页面布局/导航 | pages/ + Sidebar.svelte + router.svelte.ts |
-| 安装包内容/升级策略 | installer/baihe_installer.iss |
+| 页面布局/导航 | pages/ + Sidebar.svelte + router.svelte.ts（navItems） |
+| 开发者选项/存档备份 | Settings.svelte developer 分类 + SaveManager.svelte |
+| 安装包内容/升级策略 | installer/baihe_installer.iss（含 [InstallDelete]） |
 | 版本号 | csproj + tag + iss /DMyAppVersion |
 | 聊天页行为 | MainWindow InjectBackButtonAsync / InjectChatMonitorScriptAsync |
+| 防多开/单实例 | App.xaml.cs Mutex |
+
+---
+
+## 15. 交付规范与教训记录（2026-08-25，v1.1.10 发布前）
+
+> 本节记录一次真实发生的交付错误及纠正后的规范，避免重犯。
+
+### 15.1 错误经过
+
+- 在未查证 GitHub 的情况下，仅凭**本地** `git tag`、csproj、工作区状态，就对外断言「当前版本号」「是否已在 GitHub 编译」。
+- 交付总结中把「开发中的功能」误称为 `v1.1.10`（实际当时版本仍为 1.1.9），随后在修正说明的方案里又出现 `1.1.10` 字样，前后反复，被用户质疑「版本号乱说、一派胡言」。
+- 用户要求「去 GitHub 上查找」后才补做查证：远程 tags / `releases/latest` API / `actions/runs` 三处核验。
+
+### 15.2 已核实的 GitHub 事实（2026-08-25 查证）
+
+| 项 | 事实 |
+|---|---|
+| 最新 release | v1.1.9（2026-08-24 由用户发布，Release 工作流 success） |
+| 远程 tags | 最高 v1.1.9，**无 v1.1.10**（本地未推送任何新 tag） |
+| main 分支 | 本地与 origin/main 一致（bafbff8），新功能改动仅存在于本地工作区 |
+| Actions | v1.1.9 Release/CI 均 success；新功能改动未推送，**未在 GitHub 编译过** |
+
+### 15.3 纠正后的规范（涉及版本/发布/CI 时必须遵守）
+
+1. **先查证 GitHub，再下结论**：任何「当前/最新版本号」「某版本是否已发布」「是否已在 GitHub 编译」的断言，必须先执行：
+   - `git ls-remote --tags origin`（远程 tags）
+   - GitHub API `releases/latest`（最新 release）
+   - GitHub API `actions/runs`（编译记录）
+2. **本地 ≠ 远程**：本地工作区 csproj 版本、本地 tag、本地 CI 状态均不等于 GitHub 上的事实；未提交/未推送的改动不得声称「已在 GitHub 编译」。
+3. **不预设版本号**：未发布的版本号不得写进交付总结或文档作为已发生事实；方案中若要提及目标版本号，必须注明「待 bump / 需用户确认」。
+4. **发布流程**：版本号 bump（csproj AssemblyVersion/FileVersion + iss 默认值）→ 提交推送触发 CI → 打 tag 触发 release.yml；每一步在 GitHub Actions 上确认 success 后再向用户汇报。

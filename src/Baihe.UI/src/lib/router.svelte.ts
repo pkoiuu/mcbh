@@ -6,7 +6,7 @@
  */
 
 /** 页面类型 — 可路由的页面（聊天页面通过 IPC 外部导航，不走路由，故不在此列） */
-export type PageKey = 'home' | 'download' | 'settings' | 'tools' | 'login'
+export type PageKey = 'home' | 'download' | 'settings' | 'tools' | 'login' | 'wiki'
 
 /** 路由状态类 — 使用 class + $state 实现响应式 */
 class RouterState {
@@ -28,6 +28,7 @@ export const router = new RouterState()
 /** 导航项配置 — 下载页已移入设置页开发者选项，不在主导航显示 */
 export const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: 'home', label: '启动', icon: 'circle-play' },
+  { key: 'wiki', label: '指南', icon: 'search' },
   { key: 'settings', label: '设置', icon: 'grip' },
   { key: 'tools', label: '工具', icon: 'box' },
 ]

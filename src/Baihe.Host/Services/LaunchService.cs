@@ -45,7 +45,10 @@ public static class LaunchService
     /// <param name="instanceId">实例 ID（版本目录名）</param>
     /// <param name="account">离线账户</param>
     /// <param name="settings">启动器设置，为 null 时自动加载</param>
-    public static async Task<object> Launch(string instanceId, OfflineAccount account, LauncherSettings? settings = null)
+    /// <param name="serverAddress">目标服务器地址（覆盖设置，用于服务器列表选择）</param>
+    /// <param name="serverPort">目标服务器端口（覆盖设置，用于服务器列表选择）</param>
+    public static async Task<object> Launch(string instanceId, OfflineAccount account, LauncherSettings? settings = null,
+        string? serverAddress = null, int? serverPort = null)
     {
         // 原子检查，避免并发 launch.start 同时通过
         lock (_stateLock)
@@ -67,6 +70,14 @@ public static class LaunchService
 
             // 使用 settings.QuickPlayEnabled 决定是否启用 QuickPlay
             var enableQuickPlay = settings.QuickPlayEnabled;
+
+            // 服务器列表选择：显式指定的目标服务器覆盖设置中的默认地址
+            var quickPlayAddress = settings.ServerAddress;
+            var quickPlayPort = settings.ServerPort;
+            if (!string.IsNullOrWhiteSpace(serverAddress))
+                quickPlayAddress = serverAddress;
+            if (serverPort is > 0)
+                quickPlayPort = serverPort.Value;
 
             // 1. 获取 .minecraft 目录
             var mcDir = InstanceService.GetMcDirectory();
@@ -136,7 +147,7 @@ public static class LaunchService
             var majorVersion = ExtractMajorVersion(versionId);
 
             var jvmArgs = BuildJvmArgs(classpath, nativesDir, log4jPath, settings, isFabric);
-            var gameArgs = BuildGameArgs(version, versionId, gameDir, assetsDir, account, enableQuickPlay, majorVersion, settings, assetsIndex);
+            var gameArgs = BuildGameArgs(version, versionId, gameDir, assetsDir, account, enableQuickPlay, majorVersion, settings, assetsIndex, quickPlayAddress, quickPlayPort);
 
             // 预填充 options.txt — 跳过 Minecraft 首次启动的无障碍欢迎界面
             // 反编译 fmg.class 确认: onboardAccessibility:false → 跳过欢迎界面, true → 显示欢迎界面
@@ -300,11 +311,14 @@ public static class LaunchService
     /// <param name="instanceId">实例 ID（版本目录名）</param>
     /// <param name="account">统一账户 (离线/微软/第三方)</param>
     /// <param name="settings">启动器设置，为 null 时自动加载</param>
-    public static async Task<object> Launch(string instanceId, McAccount account, LauncherSettings? settings = null)
+    /// <param name="serverAddress">目标服务器地址（覆盖设置，用于服务器列表选择）</param>
+    /// <param name="serverPort">目标服务器端口（覆盖设置，用于服务器列表选择）</param>
+    public static async Task<object> Launch(string instanceId, McAccount account, LauncherSettings? settings = null,
+        string? serverAddress = null, int? serverPort = null)
     {
         // 转换为 OfflineAccount 传给现有逻辑
         var offlineAccount = account.ToOfflineAccount();
-        return await Launch(instanceId, offlineAccount, settings);
+        return await Launch(instanceId, offlineAccount, settings, serverAddress, serverPort);
     }
 
     /// <summary>
@@ -581,6 +595,9 @@ public static class LaunchService
         EnsureField("joinedFirstServer", "true");
         EnsureField("tutorialStep", "none");
         EnsureField("lang", "zh_cn"); // 设置游戏语言为中文
+        // serverResourcePacks: true = 允许服务器资源包（农夫乐事等自定义材质必需）
+        // 无论从哪个入口启动（主页/QuickPlay/服务器列表），都会走到这里，保证默认接受服务器资源包
+        EnsureField("serverResourcePacks", "true");
 
         try
         {
@@ -1021,7 +1038,7 @@ public static class LaunchService
     /// 构建游戏参数 — 参照 PCL CE 手动构建，不解析版本 JSON 的 arguments.game
     /// PCL CE 也是手动构建所有游戏参数，避免模板变量替换问题
     /// </summary>
-    private static List<string> BuildGameArgs(JsonObject version, string versionId, string gameDir, string assetsDir, OfflineAccount account, bool enableQuickPlay, int majorVersion, LauncherSettings settings, string assetsIndex)
+    private static List<string> BuildGameArgs(JsonObject version, string versionId, string gameDir, string assetsDir, OfflineAccount account, bool enableQuickPlay, int majorVersion, LauncherSettings settings, string assetsIndex, string quickPlayAddress, int quickPlayPort)
     {
         var args = new List<string>();
 
@@ -1065,14 +1082,14 @@ public static class LaunchService
             if (majorVersion >= 21)
             {
                 args.Add("--quickPlayMultiplayer");
-                args.Add($"{settings.ServerAddress}:{settings.ServerPort}");
+                args.Add($"{quickPlayAddress}:{quickPlayPort}");
             }
             else
             {
                 args.Add("--server");
-                args.Add(settings.ServerAddress);
+                args.Add(quickPlayAddress);
                 args.Add("--port");
-                args.Add(settings.ServerPort.ToString());
+                args.Add(quickPlayPort.ToString());
             }
         }
 

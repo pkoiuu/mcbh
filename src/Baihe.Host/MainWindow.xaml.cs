@@ -278,14 +278,22 @@ public partial class MainWindow : Window
         });
 
         // 启动 — 加载设置并传递给启动服务
+        // 参数可选: {instanceId?, serverAddress?, serverPort?} — 服务器列表选择时覆盖 QuickPlay 目标
         _ipcRouter.Register("launch.start", async args =>
         {
             string instanceId = "";
+            string? serverAddress = null;
+            int? serverPort = null;
 
             if (args?.ValueKind == System.Text.Json.JsonValueKind.Object)
             {
                 if (args.Value.TryGetProperty("instanceId", out var idProp))
                     instanceId = idProp.GetString() ?? "";
+                if (args.Value.TryGetProperty("serverAddress", out var saProp))
+                    serverAddress = saProp.ValueKind == System.Text.Json.JsonValueKind.String ? saProp.GetString() : null;
+                if (args.Value.TryGetProperty("serverPort", out var spProp)
+                    && spProp.TryGetInt32(out var port))
+                    serverPort = port;
             }
 
             // 检查用户是否已设置账户
@@ -314,7 +322,7 @@ public partial class MainWindow : Window
             var wechatName = await WeChatService.GetAsync();
             _ = TelemetryService.ReportAsync(account.Uuid, account.Username, account.Email, wechatName, account.Type.ToString());
 
-            return await LaunchService.Launch(instanceId, account, settings);
+            return await LaunchService.Launch(instanceId, account, settings, serverAddress, serverPort);
         });
 
         _ipcRouter.Register("launch.status", _ =>
@@ -376,10 +384,57 @@ public partial class MainWindow : Window
             return await SettingsService.SetAsync(args ?? default);
         });
 
-        // 服务器状态检查
-        _ipcRouter.Register("server.status", async _ =>
+        // 服务器状态检查 — 可选参数 {serverAddress?, serverPort?} 覆盖默认服务器
+        _ipcRouter.Register("server.status", async args =>
         {
-            return await ServerStatusService.CheckStatus();
+            string? address = null;
+            int? port = null;
+            if (args?.ValueKind == JsonValueKind.Object)
+            {
+                if (args.Value.TryGetProperty("serverAddress", out var saProp))
+                    address = saProp.ValueKind == JsonValueKind.String ? saProp.GetString() : null;
+                if (args.Value.TryGetProperty("serverPort", out var spProp)
+                    && spProp.TryGetInt32(out var portVal))
+                    port = portVal;
+            }
+            return await ServerStatusService.CheckStatus(address, port);
+        });
+
+        // ===== 服务器列表（QuickPlay 目标选择）=====
+
+        _ipcRouter.Register("servers.list", async _ =>
+        {
+            return await ServerEntryService.GetServersAsync();
+        });
+
+        // 新增服务器 — {name, address, port}
+        _ipcRouter.Register("servers.add", async args =>
+        {
+            if (args?.ValueKind != JsonValueKind.Object)
+                return new { success = false, error = "参数错误" };
+
+            string name = "";
+            string address = "";
+            int port = 25565;
+            if (args.Value.TryGetProperty("name", out var nProp))
+                name = nProp.GetString() ?? "";
+            if (args.Value.TryGetProperty("address", out var aProp))
+                address = aProp.GetString() ?? "";
+            if (args.Value.TryGetProperty("port", out var pProp) && pProp.TryGetInt32(out var portVal))
+                port = portVal;
+
+            var entry = await ServerEntryService.AddServerAsync(name, address, port);
+            return entry == null
+                ? new { success = false, error = "参数无效或服务器已存在" }
+                : new { success = true, entry };
+        });
+
+        // 删除服务器 — 内置默认条目不可删
+        _ipcRouter.Register("servers.remove", async args =>
+        {
+            var id = args?.ValueKind == JsonValueKind.String ? args.Value.GetString() ?? "" : "";
+            var removed = await ServerEntryService.RemoveServerAsync(id);
+            return new { success = removed };
         });
 
         // ===== Stage 6: 工具功能命令 =====

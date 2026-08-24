@@ -17,26 +17,26 @@ public static class ServerStatusService
 
     /// <summary>
     /// 检查服务器状态 — 尝试 TCP 连接并测量延迟
-    /// 服务器地址从 SettingsService 读取
+    /// 服务器地址从 SettingsService 读取，可被显式参数覆盖（服务器列表选择）
     /// </summary>
-    public static async Task<object> CheckStatus()
+    public static async Task<object> CheckStatus(string? address = null, int? port = null)
     {
         var settings = await SettingsService.GetAsync();
-        var address = settings.ServerAddress;
-        var port = settings.ServerPort;
+        var effectiveAddress = string.IsNullOrWhiteSpace(address) ? settings.ServerAddress : address;
+        var effectivePort = port is > 0 ? port.Value : settings.ServerPort;
 
         try
         {
             using var client = new TcpClient();
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
-            var connectTask = client.ConnectAsync(address, port);
+            var connectTask = client.ConnectAsync(effectiveAddress, effectivePort);
             var timeoutTask = Task.Delay(TimeoutMs);
 
             if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
             {
                 sw.Stop();
-                return new { online = false, latency = -1, address, port };
+                return new { online = false, latency = -1, address = effectiveAddress, port = effectivePort };
             }
 
             await connectTask;
@@ -46,13 +46,13 @@ public static class ServerStatusService
             {
                 online = true,
                 latency = sw.ElapsedMilliseconds,
-                address,
-                port,
+                address = effectiveAddress,
+                port = effectivePort,
             };
         }
         catch
         {
-            return new { online = false, latency = -1, address, port };
+            return new { online = false, latency = -1, address = effectiveAddress, port = effectivePort };
         }
     }
 }
