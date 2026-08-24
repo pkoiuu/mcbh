@@ -189,11 +189,21 @@ jobs:
           Write-Host "Building installer version: $version"
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version installer\baihe_installer.iss
 
+      # ===== 编译在线版安装器（net48 WinForms，体积仅数百 KB）=====
+      - name: Build online installer
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo
+          Copy-Item dist\online\BaiheOnlineSetup.exe "dist\BaiheOnlineSetup_v$version.exe" -Force
+          Get-ChildItem dist\BaiheOnlineSetup_v$version.exe | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,1)}}
+
       # ===== 上传到 GitHub Releases =====
       - name: Upload installer to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/BaiheServer_Setup_*.exe
+          files: |
+            dist/BaiheServer_Setup_*.exe
+            dist/BaiheOnlineSetup_v*.exe
           generate_release_notes: true
           body: |
             ## 白鹤服务器启动器 v${{ github.ref_name }}

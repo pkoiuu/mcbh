@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- 在线版安装程序 — 体积最小化：.NET Framework 4.8（Windows 10/11 内置运行时，无需携带）
+         功能：查最新版本 → 镜像加速择优 → 多线程下载完整安装包 → 自动安装 -->
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net48</TargetFramework>
+        <UseWindowsForms>true</UseWindowsForms>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>BaiheOnlineSetup</AssemblyName>
+        <RootNamespace>Baihe.OnlineInstaller</RootNamespace>
+        <Nullable>disable</Nullable>
+        <Deterministic>true</Deterministic>
+        <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+        <AssemblyVersion>1.1.11.0</AssemblyVersion>
+        <FileVersion>1.1.11.0</FileVersion>
+        <ApplicationIcon />
+        <!-- 体积优化 -->
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+        <Optimize>true</Optimize>
+        <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    </PropertyGroup>
+    <ItemGroup>
+        <!-- .NET Framework 4.8 引用程序集（编译所需，CI/本地均可还原） -->
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
+        <!-- .NET Framework 4.8 内置的 HttpClient（需显式引用） -->
+        <Reference Include="System.Net.Http" />
+        <Reference Include="System.Web" />
+    </ItemGroup>
+</Project>

@@ -87,6 +87,10 @@ jobs:
       - name: Build backend (parallel MSBuild)
         run: dotnet build src/Baihe.Host/Baihe.Host.csproj -c Release -m --no-restore
 
+      # 在线版安装器编译验证 (net48 WinForms)
+      - name: Build online installer
+        run: dotnet build src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release --nologo
+
       # 仅 main 分支 push 时打包 + 发布 (PR 跳过，节省约 80s)
       - name: Package build
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

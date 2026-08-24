@@ -91,7 +91,7 @@
   }
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
+<div class="min-h-0 flex-1 select-text overflow-y-auto bg-[var(--background-100)] p-8">
   <!-- 标题区 + 搜索框 -->
   <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
     <div>
@@ -104,7 +104,7 @@
         type="text"
         bind:value={query}
         placeholder="搜索指令 / 关键词，如 home、资源包…"
-        class="w-full border-0 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+        class="h-full min-w-0 flex-1 border-0 bg-transparent py-0 text-sm leading-normal text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
       />
       {#if searching}
         <button

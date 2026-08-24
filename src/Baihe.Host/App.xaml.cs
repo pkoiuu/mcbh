@@ -36,6 +36,9 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+
+        // 启动时预热 options.txt — 保证允许服务器资源包等关键选项在玩家进服前已生效
+        Baihe.Host.Services.LaunchService.EnsureLaunchOptions();
     }
 
     /// <summary>

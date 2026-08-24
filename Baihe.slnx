@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Baihe.Host/Baihe.Host.csproj" />
+    <Project Path="src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj" />
   </Folder>
 </Solution>

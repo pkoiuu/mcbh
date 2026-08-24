@@ -544,6 +544,24 @@ public static class LaunchService
     }
 
     /// <summary>
+    /// 确保启动选项 — 启动器启动时预热 options.txt（不等游戏启动）
+    /// 保证 serverResourcePacks:true（允许服务器资源包）等关键选项在玩家进服前就已生效
+    /// </summary>
+    public static void EnsureLaunchOptions()
+    {
+        try
+        {
+            var mcDir = InstanceService.GetMcDirectory();
+            if (Directory.Exists(mcDir))
+                EnsureOptionsTxt(mcDir);
+        }
+        catch
+        {
+            // 预热失败不影响启动器本身
+        }
+    }
+
+    /// <summary>
     /// 预填充 options.txt — 确保游戏跳过首次启动的无障碍欢迎界面
     /// 设置 onboardAccessibility:false 跳过无障碍引导界面 (反编译 fmg.class 确认: false=跳过, true=显示)
     /// 设置 joinedFirstServer:true 跳过"首次加入服务器"警告

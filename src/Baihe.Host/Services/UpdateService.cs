@@ -97,10 +97,12 @@ public static class UpdateService
             .GetName().Version?.ToString() ?? "1.0.0";
 
         // 缓存优先 — 缓存新鲜且非强制时直接返回
+        // 注意: 必须校验缓存的 CurrentVersion 与当前程序集版本一致，
+        //       否则升级后 1h 内启动会命中旧缓存（旧版本时查到的 hasUpdate=true），错误显示更新横幅
         if (!force)
         {
             var cached = LoadCache();
-            if (cached != null)
+            if (cached != null && cached.CurrentVersion == currentVersion)
                 return cached;
         }
 
