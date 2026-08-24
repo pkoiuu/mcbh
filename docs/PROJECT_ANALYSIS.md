@@ -3,7 +3,7 @@
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
 > 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
 > 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
-> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9，新增 光影管理/最新动态/单实例 等）→ **v1.1.10**（2026-08-25 发布：玩家指南维基 + 默认允许服务器资源包 + 服务器列表选择）。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9，新增 光影管理/最新动态/单实例 等）→ **v1.1.10**（2026-08-25 发布：玩家指南维基 + 默认允许服务器资源包 + 服务器列表选择）→ **v1.1.11**（2026-08-25 发布：修复 更新横幅缓存/维基复制/搜索框错位/最新动态同步/资源包预热 + 新增在线版安装器 src/Baihe.OnlineInstaller，40KB net48 WinForms，多线程下载 + 镜像加速择优 + 云构建）。
 
 ---
 
@@ -30,6 +30,7 @@
 - 三种登录方式：离线 / 微软正版（设备码）/ 第三方验证（Yggdrasil / LittleSkin）
 - Mod 管理（含中文名映射、图标提取）、光影管理（Iris shaderpacks）、存档备份/导入/恢复、截图浏览、游戏修复
 - 首页「最新动态」（拉取仓库 news.json，可远程更新公告）+ 服务器状态 + 更新横幅
+- **在线版安装器**（v1.1.11+，src/Baihe.OnlineInstaller）：40KB net48 WinForms，查最新版本 → 镜像测速择优 → 8 线程 Range 分块下载完整安装包 → 自动启动安装
 - 内置聊天（WebView2 导航到外部 Element 聊天页，注入返回按钮与消息监控）
 - 系统托盘、主题切换（深/浅）、更新检查（镜像测速）、遥测上报、微信名收集、单实例防多开
 
@@ -47,16 +48,22 @@
 ## 2. 目录结构（关键路径）
 
 ```text
-Baihe.slnx                        # 解决方案，仅引用 src/Baihe.Host（Core 已移除）
+Baihe.slnx                        # 解决方案：src/Baihe.Host + src/Baihe.OnlineInstaller（Core 已移除）
 src/
 ├── Baihe.Host/                   # WPF 宿主进程（唯一 .NET 项目，v1.1.9 = 24 个服务文件）
-│   ├── App.xaml(.cs)             # 应用入口 + 单实例 Mutex（防多开，v1.1.9）
+│   ├── App.xaml(.cs)             # 应用入口 + 单实例 Mutex（防多开，v1.1.9）+ 启动预热 options.txt（v1.1.11）
 │   ├── MainWindow.xaml(.cs)      # 主窗口：WebView2 初始化 + 全部 IPC 命令注册（partial 拆分: MainWindow.Chat.cs）
 │   ├── Chrome/TitleBar.xaml(.cs) # 原生标题栏 + 交通灯按钮
 │   ├── Ipc/                      # IpcMessage.cs + IpcRouter.cs（IPC 协议与路由）
 │   ├── Web/WebViewHost.cs        # WebView2 环境创建 + 虚拟主机映射
 │   ├── Models/                   # McAccount / OfflineAccount / GameInstance
 │   └── Services/                 # 24 个业务服务（见 §6；NewsService/ShaderService/MinecraftRules 为 v1.1.3~1.1.8 新增）
+├── Baihe.OnlineInstaller/        # 在线版安装器（v1.1.11+，.NET Framework 4.8 WinForms，独立构建，~40KB）
+│   ├── Program.cs                # 入口（AppVersion 常量）
+│   ├── MainForm.cs               # 无边框自绘界面 + 流程编排（查版本→测速→下载→启动安装）
+│   ├── UpdateService.cs          # GitHub API + mirrors.json 镜像测速择优（内置 SimpleJson）
+│   ├── Downloader.cs             # 8 线程 HTTP Range 分块下载 + 进度/取消/断点探测
+│   └── SimpleJson.cs             # 极简 JSON 解析（不引第三方库，保持体积）
 └── Baihe.UI/                     # Svelte 5 前端（构建输出到 ../Baihe.Host/wwwroot）
     ├── vite.config.ts            # outDir: ../Baihe.Host/wwwroot，WebView2 兼容插件
     └── src/
@@ -64,7 +71,7 @@ src/
         ├── app.css               # 设计令牌系统（Tailwind 4 @theme + CSS 变量双层）
         ├── components/           # WindowShell / Sidebar / WeChatDialog / ShadersPanel(v1.1.3+) / SaveManager(v1.1.3+)
         ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）+ shaders.ts(v1.1.3+)
-        └── pages/                # Home / Download / Settings / Tools / Login
+        └── pages/                # Home / Download / Settings / Tools / Login / Wiki(v1.1.10+)
 PCL2-CE/                          # 上游 Plain Craft Launcher 2 CE 的 fork（仅参考，不参与构建）
 installer/                        # Inno Setup 安装脚本
 installer_resources/              # 开发期资源：.minecraft、jre、icon.ico、ChineseSimplified.isl
@@ -537,19 +544,24 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 3. `instance.current` 的 `!` 解引用在无实例时会抛错 → 返回 null 让前端处理（前端已有兜底，后端仍待修）。
 4. **开发者密码硬编码在前端**（Settings.svelte `111125hj`）→ 移到后端或去掉密码（本就不该是安全边界，至少别扩散）。
 5. 内置游戏（.minecraft）经 Inno 打包分发，涉及 Mojang EULA 与版权，属产品决策需注意。
+6. ~~升级后仍显示更新横幅~~ **已修复（v1.1.11）**：UpdateService 缓存命中增加 CurrentVersion 一致性校验，升级后旧缓存自动作废。
+7. ~~维基文字不能复制 / 搜索框文字错位~~ **已修复（v1.1.11）**：Wiki 根容器加 select-text；搜索框 input 改 h-full/min-w-0/flex-1 垂直对齐。
+8. ~~最新动态不更新~~ **已修复（v1.1.11）**：NewsService 多源回退（raw → jsDelivr → ghproxy），news.json 同步 v1.1.10 内容。
+9. ~~拒绝服务器资源包~~ **已修复（v1.1.10+11）**：EnsureOptionsTxt 写 serverResourcePacks:true + App 启动预热 EnsureLaunchOptions()；初始 options.txt 已加字段（随下次 minecraft.7z 打包生效）。
+10. **在线安装器**（v1.1.11+）：net48 WinForms 40KB，不支持断点续传的服务器回退单线程；镜像测速仅测速下载 URL 前缀。
 
 **中优先级（工程化）**：
-6. 静态服务静态状态仍普遍（v1.1.6 起部分服务已加锁/并发集合，但 Auth/Launch 等仍是裸 static 字段）→ 逐步收敛。
-7. 更新检查与 app.getVersion 版本获取方式不一致（AssemblyVersion vs FileVersion，Release 下一般一致）。
-8. 硬编码散落：遥测地址/ApiKey、GitHub repo（pkoiuu/mcbh）、开发者密码、聊天站点 hhj520.top → 收敛到配置。
-9. `OnWebMessageReceived` 是 `async void`，异常只进 Debug 输出 → 前端可能静默超时。
-10. README 构建说明与代码不一致（build-all.ps1、复制 assets 步骤）。
-11. App.svelte 注释称页面「懒加载」但实际是静态 import（`{#if}` 全量渲染），页面体积大时考虑 Svelte 动态组件。
+11. 静态服务静态状态仍普遍（v1.1.6 起部分服务已加锁/并发集合，但 Auth/Launch 等仍是裸 static 字段）→ 逐步收敛。
+12. 更新检查与 app.getVersion 版本获取方式不一致（AssemblyVersion vs FileVersion，Release 下一般一致）。
+13. 硬编码散落：遥测地址/ApiKey、GitHub repo（pkoiuu/mcbh）、开发者密码、聊天站点 hhj520.top → 收敛到配置。
+14. `OnWebMessageReceived` 是 `async void`，异常只进 Debug 输出 → 前端可能静默超时。
+15. README 构建说明与代码不一致（build-all.ps1、复制 assets 步骤）。
+16. App.svelte 注释称页面「懒加载」但实际是静态 import（`{#if}` 全量渲染），页面体积大时考虑 Svelte 动态组件。
 
 **低优先级（体验）**：
-12. Icon 缺 close/x 图标（circle-x 占位到 info）。
-13. `saves.restore` 的旧目录改名逻辑与卸载保留策略需在 UI 上说明。
-14. 光影仅 zip 扫描，不支持目录型/展开型光影包（Iris 也支持文件夹式 shaderpack）；shaderpacks 子目录会被漏列。
+17. Icon 缺 close/x 图标（circle-x 占位到 info）。
+18. `saves.restore` 的旧目录改名逻辑与卸载保留策略需在 UI 上说明。
+19. 光影仅 zip 扫描，不支持目录型/展开型光影包（Iris 也支持文件夹式 shaderpack）；shaderpacks 子目录会被漏列。
 
 ---
 
