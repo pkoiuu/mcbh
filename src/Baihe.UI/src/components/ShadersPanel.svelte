@@ -21,6 +21,8 @@
   /** 待二次确认删除的文件名 */
   let confirmDelete = $state<string | null>(null)
   let confirmTimer: ReturnType<typeof setTimeout> | null = null
+  /** 当前悬浮的光影文件名 — 控制介绍浮层显隐（JS 状态，比 CSS group-hover 可靠） */
+  let hoveredShader = $state<string | null>(null)
 
   /** 加载光影列表 */
   async function loadShaders(): Promise<void> {
@@ -184,6 +186,8 @@
         {@const meta = findShaderMeta(shader.fileName)}
         <div
           class="group relative overflow-hidden rounded-[1rem] border bg-[var(--card)] transition-[box-shadow,border-color] hover:shadow-[var(--shadow-sm)] {shader.enabled ? 'border-[var(--primary)]' : 'border-[var(--border)]'}"
+          onmouseenter={() => (hoveredShader = shader.fileName)}
+          onmouseleave={() => (hoveredShader = null)}
         >
           <!-- 预览图 -->
           <div class="relative h-36 w-full overflow-hidden">
@@ -263,8 +267,8 @@
           </div>
 
           <!-- 悬浮说明浮层 — 悬停时覆盖预览图区域（顶部 144px），不遮挡下方操作按钮 -->
-          {#if meta}
-            <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 overflow-y-auto bg-[rgba(20,20,22,0.94)] p-3 text-[12px] leading-relaxed text-[var(--foreground)] opacity-0 shadow-xl backdrop-blur-md transition-opacity duration-200 group-hover:opacity-100">
+          {#if meta && hoveredShader === shader.fileName}
+            <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 overflow-y-auto bg-[rgba(20,20,22,0.94)] p-3 text-[12px] leading-relaxed text-[var(--foreground)] shadow-xl backdrop-blur-md">
               <div class="font-semibold">{meta.displayName}</div>
               <div class="mt-1 text-[var(--muted-foreground)]">{meta.description}</div>
               <div class="mt-2 flex items-center gap-1.5 text-[11px]">

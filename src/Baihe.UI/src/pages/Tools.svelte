@@ -8,6 +8,7 @@
   import { ipc } from '../lib/ipc'
   import { toast } from '../lib/toast.svelte'
   import { router } from '../lib/router.svelte'
+  import { fade } from 'svelte/transition'
   import ShadersPanel from '../components/ShadersPanel.svelte'
 
   // ===== 类型定义 =====
@@ -94,11 +95,17 @@
 
   // ===== 数据加载函数 =====
 
-  /** 加载 Mod 列表 */
-  async function loadMods(): Promise<void> {
+  /** 数据是否已加载过（切 tab 不重复拉取，避免卡顿） */
+  let modsLoaded = $state(false)
+  let screenshotsLoaded = $state(false)
+
+  /** 加载 Mod 列表（首次加载后缓存，刷新按钮可强制重拉） */
+  async function loadMods(force = false): Promise<void> {
+    if (modsLoaded && !force) return
     modsLoading = true
     try {
       mods = await ipc<ModItem[]>('mods.list')
+      modsLoaded = true
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载 Mod 列表失败')
       mods = []
@@ -107,11 +114,13 @@
     }
   }
 
-  /** 加载截图列表 */
-  async function loadScreenshots(): Promise<void> {
+  /** 加载截图列表（首次加载后缓存） */
+  async function loadScreenshots(force = false): Promise<void> {
+    if (screenshotsLoaded && !force) return
     screenshotsLoading = true
     try {
       screenshots = await ipc<ScreenshotItem[]>('screenshots.list')
+      screenshotsLoaded = true
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '加载截图列表失败')
       screenshots = []
@@ -377,7 +386,9 @@
 
     <!-- 3. Tab 内容区 -->
     <section>
-      {#if activeTab === 'mods'}
+      {#key activeTab}
+        <div in:fade={{ duration: 150 }}>
+          {#if activeTab === 'mods'}
         <!-- ===== Mod 管理 Tab ===== -->
         <div class="flex flex-col gap-4">
           <!-- 操作栏 -->
@@ -397,7 +408,7 @@
               <button
                 type="button"
                 class="inline-flex h-9 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                onclick={loadMods}
+                onclick={() => loadMods(true)}
                 disabled={modsLoading}
               >
                 {@render RefreshIcon(16)}
@@ -527,7 +538,7 @@
               <button
                 type="button"
                 class="inline-flex h-9 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-4 text-[13px] font-medium text-[var(--foreground)] transition-[background-color] hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                onclick={loadScreenshots}
+                onclick={() => loadScreenshots(true)}
                 disabled={screenshotsLoading}
               >
                 {@render RefreshIcon(16)}
@@ -718,6 +729,8 @@
           </button>
         </div>
       {/if}
+        </div>
+      {/key}
     </section>
   </div>
 </div>
