@@ -51,6 +51,7 @@ namespace Baihe.OnlineInstaller
         {
             var handler = new HttpClientHandler
             {
+                UseProxy = false, // 禁用系统代理，直连加速服务器（避免用户系统代理导致连接失败）
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             };
             var client = new HttpClient(handler)
@@ -100,12 +101,15 @@ namespace Baihe.OnlineInstaller
             return null;
         }
 
-        /// <summary>获取鉴权 token（编译注入的 AssemblyMetadata 或环境变量 BAIHE_ONLINE_TOKEN）</summary>
+        /// <summary>
+        /// 获取鉴权 token（编译注入的 AssemblyMetadata 或环境变量 BAIHE_ONLINE_TOKEN）
+        /// 注意: 去除可能混入的 BOM(U+FEFF) 和首尾空白 — secret 设置/编译注入时可能带入 BOM 导致鉴权失败
+        /// </summary>
         public static string GetToken()
         {
             var env = Environment.GetEnvironmentVariable("BAIHE_ONLINE_TOKEN");
             if (!string.IsNullOrEmpty(env))
-                return env;
+                return CleanToken(env);
             try
             {
                 foreach (var attr in System.Reflection.Assembly.GetExecutingAssembly()
@@ -113,11 +117,17 @@ namespace Baihe.OnlineInstaller
                 {
                     var m = (System.Reflection.AssemblyMetadataAttribute)attr;
                     if (m.Key == "OnlineToken" && !string.IsNullOrEmpty(m.Value))
-                        return m.Value;
+                        return CleanToken(m.Value);
                 }
             }
             catch { }
             return "";
+        }
+
+        /// <summary>去除 BOM(U+FEFF) 和首尾空白 — 防止 secret/编译注入时混入不可见字符导致鉴权 401</summary>
+        private static string CleanToken(string raw)
+        {
+            return raw.Trim().TrimStart('\uFEFF', '\uFFFE').Trim();
         }
 
         private static string GetString(Dictionary<string, object> obj, string key)

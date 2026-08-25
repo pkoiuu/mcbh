@@ -11,8 +11,8 @@
         <Nullable>disable</Nullable>
         <Deterministic>true</Deterministic>
         <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-        <AssemblyVersion>1.1.20.0</AssemblyVersion>
-        <FileVersion>1.1.20.0</FileVersion>
+        <AssemblyVersion>1.1.21.0</AssemblyVersion>
+        <FileVersion>1.1.21.0</FileVersion>
         <ApplicationIcon />
         <!-- 体积优化 -->
         <DebugType>none</DebugType>

@@ -24,8 +24,8 @@ namespace Baihe.OnlineInstaller
         /// <summary>探测超时（毫秒）— 用户网络慢时放宽到 30s</summary>
         private const int ProbeTimeoutMs = 30000;
 
-        /// <summary>单块读取无数据超时（毫秒）</summary>
-        private const int ReadStallTimeoutMs = 30000;
+        /// <summary>单块读取无数据超时（毫秒）— 慢速网络下放宽到 60s，避免误判</summary>
+        private const int ReadStallTimeoutMs = 60000;
 
         private long _downloaded;
         private int _completedChunks;
@@ -79,8 +79,15 @@ namespace Baihe.OnlineInstaller
             _threads = Math.Max(1, Math.Min(threads, 16));
             _authHeaderName = authHeaderName;
             _authHeaderValue = authHeaderValue;
+            // 关键: 禁用系统代理（UseProxy=false）— .NET Framework HttpClient 默认走 IE 系统代理，
+            //       用户机器上有代理设置时会经代理连接加速服务器导致失败（curl 不走代理所以测试全通过）
+            var handler = new HttpClientHandler
+            {
+                UseProxy = false,
+                AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
+            };
             // 单请求超时 5 分钟（响应头到达前的总时限）；流读取另有 stall 超时保护
-            _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
         }
 
         /// <summary>给请求附加鉴权 header（如自建加速服务的 token）</summary>

@@ -503,12 +503,13 @@ public static class UpdateService
     /// <summary>
     /// 读取自建加速服务 token — 优先编译注入的 AssemblyMetadata（release.yml -p:OnlineToken），
     /// 其次环境变量 BAIHE_ONLINE_TOKEN（本地调试）；源码不含令牌
+    /// 注意: 去除可能混入的 BOM(U+FEFF) 和首尾空白 — secret 设置/编译注入时可能带入 BOM 导致鉴权 401
     /// </summary>
     private static string GetOnlineToken()
     {
         var env = Environment.GetEnvironmentVariable("BAIHE_ONLINE_TOKEN");
         if (!string.IsNullOrEmpty(env))
-            return env;
+            return CleanToken(env);
         try
         {
             foreach (var attr in System.Reflection.Assembly.GetExecutingAssembly()
@@ -516,11 +517,17 @@ public static class UpdateService
             {
                 var m = (System.Reflection.AssemblyMetadataAttribute)attr;
                 if (m.Key == "OnlineToken" && !string.IsNullOrEmpty(m.Value))
-                    return m.Value;
+                    return CleanToken(m.Value);
             }
         }
         catch { }
         return "";
+    }
+
+    /// <summary>去除 BOM(U+FEFF) 和首尾空白 — 防止 secret/编译注入时混入不可见字符导致鉴权 401</summary>
+    private static string CleanToken(string raw)
+    {
+        return raw.Trim().TrimStart('\uFEFF', '\uFFFE').Trim();
     }
 }
 
