@@ -489,6 +489,44 @@ public static class UpdateService
     /// <summary>自建加速服务浏览器直链（8091，URL 带 token，浏览器可直接下载）</summary>
     private const string AcceleratorBrowserBase = "http://199.68.217.4:8091";
 
+    /// <summary>自建加速服务命令行直链（8090，header 鉴权，支持断点续传）</summary>
+    private const string AcceleratorCliBase = "http://199.68.217.4:8090";
+
+    /// <summary>
+    /// 下载在线安装器（BaiheOnlineSetup，仅 40KB）到临时目录并返回路径。
+    /// 主程序"下载更新"用此方法：下载 40KB 在线安装器 → 运行它 → 主程序退出 → 在线安装器接管多线程下载完整包+安装
+    /// </summary>
+    public static async Task<string?> DownloadOnlineInstallerAsync(string version)
+    {
+        try
+        {
+            var token = GetOnlineToken();
+            var exeName = $"BaiheOnlineSetup_v{version}.exe";
+            var url = $"{AcceleratorCliBase}/github.com/{RepoOwner}/{RepoName}/releases/download/v{version}/{exeName}";
+            var destPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), exeName);
+
+            using var handler = new HttpClientHandler { UseProxy = false };
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(token))
+                req.Headers.TryAddWithoutValidation("token", token);
+
+            using var resp = await http.SendAsync(req, System.Net.Http.HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+                return null;
+
+            using (var fs = new System.IO.FileStream(destPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+            {
+                await resp.Content.CopyToAsync(fs).ConfigureAwait(false);
+            }
+            return destPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// 构造自建加速服务的完整安装包下载 URL（格式: 加速地址 + github.com/原路径 + ?token=）
     /// </summary>

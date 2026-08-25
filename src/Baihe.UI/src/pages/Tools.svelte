@@ -22,6 +22,7 @@
     lastModified: string
     iconDataUrl?: string | null
     chineseName?: string
+    chineseDesc?: string | null
     description?: string | null
   }
 
@@ -458,9 +459,9 @@
                         <span class="shrink-0 text-[11px] text-[var(--muted-foreground)]" style="font-family: var(--font-mono);">{mod.displayName}</span>
                       {/if}
                     </div>
-                    {#if mod.description}
-                      <div class="mt-0.5 truncate text-[12px] text-[var(--muted-foreground)]" title={mod.description}>
-                        {mod.description}
+                    {#if mod.chineseDesc || mod.description}
+                      <div class="mt-0.5 truncate text-[12px] text-[var(--muted-foreground)]" title={mod.chineseDesc || mod.description || ''}>
+                        {mod.chineseDesc || mod.description}
                       </div>
                     {:else}
                       <div class="mt-0.5 flex items-center gap-2 text-[12px] text-[var(--muted-foreground)]">

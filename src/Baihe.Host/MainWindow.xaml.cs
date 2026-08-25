@@ -127,6 +127,38 @@ public partial class MainWindow : Window
             return await UpdateService.CheckForUpdateAsync(force);
         });
 
+        // 下载更新 — 下载在线安装器(40KB)并运行，主程序退出让在线安装器接管多线程下载完整包+安装
+        _ipcRouter.Register("update.download", async args =>
+        {
+            var version = "";
+            if (args?.ValueKind == JsonValueKind.String)
+                version = args.Value.GetString() ?? "";
+
+            if (string.IsNullOrEmpty(version))
+                return new { success = false, error = "未指定版本号" };
+
+            var installerPath = await UpdateService.DownloadOnlineInstallerAsync(version);
+            if (string.IsNullOrEmpty(installerPath) || !System.IO.File.Exists(installerPath))
+                return new { success = false, error = "下载在线安装器失败" };
+
+            // 运行在线安装器并退出主程序（在线安装器会多线程下载完整安装包并启动安装向导）
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = installerPath,
+                    UseShellExecute = true,
+                });
+                // 延迟退出让前端收到响应
+                _ = Task.Delay(500).ContinueWith(_ => Dispatcher.Invoke(() => Application.Current.Shutdown()));
+                return new { success = true };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
+        });
+
         // 最新动态 — 拉取仓库 news.json（首页公告，可自动更新）
         _ipcRouter.Register("news.list", async _ =>
         {

@@ -303,7 +303,13 @@
         <button
           type="button"
           class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
-          onclick={() => ipc('open.url', updateInfo.downloadUrl)}
+          onclick={async () => {
+            try {
+              await ipc('update.download', updateInfo.latestVersion)
+            } catch {
+              toast.error('无法启动更新下载')
+            }
+          }}
         >
           下载更新
         </button>

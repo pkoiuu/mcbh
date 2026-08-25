@@ -248,29 +248,59 @@ namespace Baihe.OnlineInstaller
                 _progress = 1.0;
                 InvalidateProgress();
 
-                // 下载完成：停止动画重绘，避免安装期间界面持续占用 CPU（卡顿优化）
+                // 下载完成：停止动画重绘
                 _animTimer?.Stop();
 
-                // 4. 启动安装程序（Inno 向导接管）
-                SetStatus("下载完成，正在启动安装程序...", "");
-                _btnAction.Text = "关闭";
+                // 4. 启动安装程序 — 显示明确提示（避免用户以为卡住），后台启动避免阻塞 UI
+                SetStatus("下载完成！正在启动安装程序，请稍候...", "安装包较大，启动需要约 10-30 秒，请勿关闭窗口");
+                _btnAction.Text = "请等待";
+                _btnAction.Enabled = false;
                 _completed = true;
+
+                System.Diagnostics.Process installerProcess = null;
                 try
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    // 后台启动安装程序（避免 shell 执行阻塞 UI 线程）
+                    installerProcess = await Task.Run(() =>
                     {
-                        FileName = _tempExePath,
-                        UseShellExecute = true,
-                    });
+                        return System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = _tempExePath,
+                            UseShellExecute = true,
+                        });
+                    }).ConfigureAwait(true);
                 }
                 catch (Exception ex)
                 {
                     SetStatus("无法启动安装程序", ex.Message);
+                    _btnAction.Text = "关闭";
+                    _btnAction.Enabled = true;
                     return;
                 }
 
-                // 5. 短暂展示后自动退出（安装向导已接管，减少等待避免卡顿感知）
-                await Task.Delay(800);
+                // 5. 等待安装程序窗口出现（最多 30 秒），出现后自身退出
+                if (installerProcess != null)
+                {
+                    SetStatus("安装程序已启动，正在准备安装向导...", "请稍候，安装窗口即将出现");
+                    for (var i = 0; i < 60; i++)
+                    {
+                        await Task.Delay(500).ConfigureAwait(true);
+                        if (installerProcess.HasExited)
+                        {
+                            // 安装程序异常退出
+                            SetStatus("安装程序已退出", "可能安装已完成或被取消");
+                            break;
+                        }
+                        // 检查安装程序主窗口是否出现
+                        if (installerProcess.MainWindowHandle != IntPtr.Zero)
+                        {
+                            // 安装向导窗口已出现，自身退出
+                            break;
+                        }
+                    }
+                }
+
+                // 6. 退出在线安装器（安装向导已接管）
                 if (!IsDisposed)
                     Close();
             }
@@ -341,7 +371,20 @@ namespace Baihe.OnlineInstaller
             {
                 var text = FormatSize(down) + " / " + (total > 0 ? FormatSize(total) : "未知");
                 if (!string.IsNullOrEmpty(_speedText))
+                {
                     text += "   ·   " + _speedText;
+                    // 剩余时间 ETA = 剩余字节 / 速度
+                    if (total > 0 && down < total)
+                    {
+                        var speedMatch = System.Text.RegularExpressions.Regex.Match(_speedText, @"([\d.]+)\s*MB/s");
+                        if (speedMatch.Success && double.TryParse(speedMatch.Groups[1].Value, out var speedMbps) && speedMbps > 0)
+                        {
+                            var remainingBytes = total - down;
+                            var etaSec = remainingBytes / 1024.0 / 1024.0 / speedMbps;
+                            text += "   ·   剩余 " + (etaSec >= 60 ? $"{(int)etaSec / 60}分{Math.Ceiling(etaSec % 60)}秒" : $"{Math.Ceiling(etaSec)}秒");
+                        }
+                    }
+                }
                 BeginInvoke(new Action(() => { _lblInfo.Text = text; }));
             }
             catch { }

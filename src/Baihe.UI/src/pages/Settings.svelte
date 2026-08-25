@@ -749,7 +749,13 @@
                       <button
                         type="button"
                         class="whitespace-nowrap text-[13px] font-medium text-[var(--primary)] transition-[opacity] hover:opacity-70"
-                        onclick={() => ipc('open.url', updateInfo.downloadUrl)}
+                        onclick={async () => {
+                          try {
+                            await ipc('update.download', updateInfo.latestVersion)
+                          } catch {
+                            toast.error('无法启动更新下载')
+                          }
+                        }}
                       >
                         下载 &rarr;
                       </button>

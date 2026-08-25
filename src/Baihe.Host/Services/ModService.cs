@@ -58,6 +58,25 @@ public static class ModService
         ["imblocker"] = "输入法冲突修复",
     };
 
+    /// <summary>常见模组中文介绍映射（key: fabric.mod.json 的 id，value: 中文介绍）</summary>
+    private static readonly Dictionary<string, string> ChineseDescMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sodium"] = "客户端渲染优化模组，大幅提升帧率和渲染效率",
+        ["sodium-extra"] = "钠的扩展功能，提供额外动画/粒子等渲染选项",
+        ["jade"] = "物品信息显示，鼠标悬停显示方块/实体详情",
+        ["appleskin"] = "食物信息显示，显示饱食度恢复量和饱和度",
+        ["modmenu"] = "模组列表菜单，在游戏内查看已安装模组",
+        ["xaerominimap"] = "小地图模组，显示坐标、方向和路径",
+        ["placeholder-api"] = "文本占位符接口，供其他模组使用",
+        ["fabric-api"] = "Fabric 模组开发基础库，大多数模组的前置",
+        ["cloth-config"] = "配置界面库，供模组生成设置界面",
+        ["yet_another_config_lib"] = "YACL 配置库，模组配置界面框架",
+        ["yet_another_config_lib_v3"] = "YACL 配置库，模组配置界面框架",
+        ["iris"] = "光影加载模组，支持加载光影包（需搭配光影包使用）",
+        ["bettertab"] = "Tab 玩家列表优化",
+        ["imblocker"] = "修复中文输入法在游戏内导致的冲突问题",
+    };
+
     /// <summary>获取 mods 目录路径 — 游戏实际加载的全局 mods 目录 (.minecraft/mods)</summary>
     private static string GetModsDir()
     {
@@ -97,6 +116,7 @@ public static class ModService
                 mod.DisplayName = meta.DisplayName;
             mod.Description = meta.Description;
             mod.ChineseName = ResolveChineseName(meta);
+            mod.ChineseDesc = ResolveChineseDesc(meta);
             mods.Add(mod);
         }
 
@@ -120,6 +140,7 @@ public static class ModService
                 mod.DisplayName = meta.DisplayName;
             mod.Description = meta.Description;
             mod.ChineseName = ResolveChineseName(meta);
+            mod.ChineseDesc = ResolveChineseDesc(meta);
             mods.Add(mod);
         }
 
@@ -235,6 +256,33 @@ public static class ModService
 
         // 3. 回退 id 或空
         return meta.Id;
+    }
+
+    /// <summary>
+    /// 解析中文介绍 — 优先按 mod id 映射，其次按 displayName 模糊匹配，最后回退原 description
+    /// </summary>
+    private static string? ResolveChineseDesc(CachedModMeta meta)
+    {
+        // 1. 按 fabric.mod.json 的 id 精确匹配
+        if (!string.IsNullOrEmpty(meta.Id) && ChineseDescMap.TryGetValue(meta.Id, out var byId))
+            return byId;
+
+        // 2. 按 displayName/id 模糊匹配
+        var key = !string.IsNullOrEmpty(meta.Id) ? meta.Id : meta.DisplayName;
+        if (!string.IsNullOrEmpty(key))
+        {
+            foreach (var (k, v) in ChineseDescMap)
+            {
+                if (key.Contains(k, StringComparison.OrdinalIgnoreCase)
+                    || k.Contains(key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return v;
+                }
+            }
+        }
+
+        // 3. 回退原 description（英文）
+        return meta.Description;
     }
 
     /// <summary>
@@ -415,6 +463,8 @@ public class ModInfo
     public string? IconDataUrl { get; set; }
     /// <summary>Mod 中文名（映射表查不到时回退 fabric name / 文件名提取名）</summary>
     public string ChineseName { get; set; } = "";
+    /// <summary>Mod 中文介绍（映射表查不到时回退 fabric description 原文）</summary>
+    public string? ChineseDesc { get; set; }
     /// <summary>Mod 介绍（来自 fabric.mod.json description）</summary>
     public string? Description { get; set; }
 }
