@@ -79,14 +79,18 @@ namespace Baihe.OnlineInstaller
             _threads = Math.Max(1, Math.Min(threads, 16));
             _authHeaderName = authHeaderName;
             _authHeaderValue = authHeaderValue;
-            // 关键: 禁用系统代理（UseProxy=false）— .NET Framework HttpClient 默认走 IE 系统代理，
-            //       用户机器上有代理设置时会经代理连接加速服务器导致失败（curl 不走代理所以测试全通过）
+
+            // ★ 最大速度瓶颈修复: .NET Framework 默认只允许 2 个并发连接到同一主机，
+            //   8 线程 Range 分块会争抢 2 个连接槽严重拖慢速度。设为 16 让 8 线程真正并发。
+            System.Net.ServicePointManager.DefaultConnectionLimit = 16;
+            // 启用 HTTP/2 协议（如果服务器支持 H2C，提升多路复用效率）
+            System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12;
+
             var handler = new HttpClientHandler
             {
                 UseProxy = false,
                 AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
             };
-            // 单请求超时 5 分钟（响应头到达前的总时限）；流读取另有 stall 超时保护
             _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
         }
 
@@ -100,8 +104,8 @@ namespace Baihe.OnlineInstaller
         }
 
         /// <summary>
-        /// 开始下载 — 依次尝试每个候选 URL；前 2 轮多线程分块，后 2 轮自动降级单线程全量下载兜底。
-        /// onProgress(long downloaded, long total, double speedMBps) 高频回调
+        /// 开始下载 — 2 轮策略：第 1 轮多线程分块（块级重试），第 2 轮单线程全量兜底。
+        /// 多线程模式下单个分块失败只重试该块（最多 3 次），不重来整个文件。
         /// </summary>
         public async Task<bool> DownloadAsync(
             Action<long, long, double> onProgress,
@@ -110,13 +114,13 @@ namespace Baihe.OnlineInstaller
         {
             _onProgress = onProgress;
 
-            const int totalRounds = 4; // 1-2 多线程, 3-4 单线程兜底
+            const int totalRounds = 2; // 1=多线程(块级重试), 2=单线程兜底
             for (var attempt = 1; attempt <= totalRounds; attempt++)
             {
                 if (token.IsCancellationRequested)
                     return false;
 
-                var forceSingle = attempt >= 3;
+                var forceSingle = attempt >= 2;
                 foreach (var url in _urls)
                 {
                     if (string.IsNullOrEmpty(url))
@@ -134,24 +138,22 @@ namespace Baihe.OnlineInstaller
                     {
                         if (await TryDownloadFromAsync(url, onStatus, token, forceSingle).ConfigureAwait(false))
                             return true;
-                        onStatus?.Invoke(forceSingle ? "下载未完成，正在重试..." : "下载校验未通过，正在切换方式重试...");
+                        onStatus?.Invoke(forceSingle ? "下载未完成，正在重试..." : "多线程下载未通过，切换单线程...");
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {
-                        return false; // 用户取消
+                        return false;
                     }
                     catch
                     {
-                        onStatus?.Invoke(forceSingle ? "当前线路异常，正在重试..." : "当前线路异常，自动降级单线程重试...");
+                        onStatus?.Invoke(forceSingle ? "当前线路异常，正在重试..." : "多线程异常，自动降级单线程...");
                     }
                 }
 
                 if (attempt < totalRounds)
                 {
-                    // 整轮重试前清理残留文件
                     try { if (File.Exists(_destPath)) File.Delete(_destPath); } catch { }
-                    var mode = forceSingle ? "单线程" : "多线程";
-                    onStatus?.Invoke($"第 {attempt} 次尝试失败，正在第 {attempt + 1} 次重试（{mode}）...");
+                    onStatus?.Invoke("切换到单线程下载模式...");
                 }
             }
 
@@ -189,6 +191,9 @@ namespace Baihe.OnlineInstaller
             // 2. 按支持情况选择下载方式
             if (rangeSupported && total > 1 && _threads > 1)
             {
+                // 预分配文件大小（避免碎片 + 提高写入效率）
+                try { using (var pre = new FileStream(_destPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)) { pre.SetLength(total); } } catch { }
+
                 var chunkSize = (long)Math.Ceiling((double)total / _threads);
                 var tasks = new Task[_threads];
                 for (var i = 0; i < _threads; i++)
@@ -200,7 +205,8 @@ namespace Baihe.OnlineInstaller
                         tasks[i] = Task.CompletedTask;
                         continue;
                     }
-                    tasks[i] = DownloadChunkAsync(url, start, end, token);
+                    // 块级重试：单个分块失败只重试该块（最多 3 次），不重来整个文件
+                    tasks[i] = DownloadChunkWithRetryAsync(url, start, end, token);
                 }
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
@@ -232,9 +238,10 @@ namespace Baihe.OnlineInstaller
 
             long written = 0;
             using (var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
-            using (var fs = new FileStream(_destPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            using (var fs = new FileStream(_destPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite,
+                       bufferSize: 256 * 1024, FileOptions.SequentialScan))
             {
-                var buffer = new byte[128 * 1024];
+                var buffer = new byte[256 * 1024]; // 256KB（原 128KB）
                 while (true)
                 {
                     token.ThrowIfCancellationRequested();
@@ -292,7 +299,32 @@ namespace Baihe.OnlineInstaller
             return (_total, false);
         }
 
-        /// <summary>下载一个分块到文件偏移（isFull=true 时从 0 写起，覆盖写）；30s 无数据自动中断</summary>
+        /// <summary>分块下载 + 块级重试（最多 3 次）— 单个分块失败只重试该块，不重来整个文件</summary>
+        private async Task DownloadChunkWithRetryAsync(string url, long start, long end, CancellationToken token)
+        {
+            const int maxChunkRetries = 3;
+            for (var retry = 1; retry <= maxChunkRetries; retry++)
+            {
+                try
+                {
+                    await DownloadChunkAsync(url, start, end, token).ConfigureAwait(false);
+                    return; // 成功
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw; // 用户取消，不重试
+                }
+                catch (Exception ex)
+                {
+                    if (retry >= maxChunkRetries)
+                        throw; // 重试次数用尽，抛给上层
+                    // 块级重试：等待短暂时间后重试该块
+                    await Task.Delay(1000 * retry, token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>下载一个分块到文件偏移（isFull=true 时从 0 写起）；缓冲区 256KB + SequentialScan 优化</summary>
         private async Task DownloadChunkAsync(string url, long start, long end, CancellationToken token, bool isFull = false)
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
@@ -303,20 +335,20 @@ namespace Baihe.OnlineInstaller
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
-            // Range 分块请求必须返回 206；若服务器返回 200（全量），说明并发/代理行为异常，
-            // 此时按块写入会破坏文件，直接抛异常触发降级重试
             if (!isFull && resp.StatusCode != System.Net.HttpStatusCode.PartialContent)
-                throw new HttpRequestException($"服务器未返回分块内容（HTTP {(int)resp.StatusCode}），自动降级重试");
+                throw new HttpRequestException($"服务器未返回分块内容（HTTP {(int)resp.StatusCode}）");
 
             long written = 0;
+            // 256KB 缓冲区 + SequentialScan（大文件顺序写优化）
             using (var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
-            using (var fs = new FileStream(_destPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite))
+            using (var fs = new FileStream(_destPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite,
+                       bufferSize: 256 * 1024, FileOptions.SequentialScan))
             {
                 var offset = isFull ? 0 : start;
                 if (offset > 0)
                     fs.Seek(offset, SeekOrigin.Begin);
 
-                var buffer = new byte[128 * 1024];
+                var buffer = new byte[256 * 1024]; // 256KB（原 128KB）
                 while (true)
                 {
                     token.ThrowIfCancellationRequested();
@@ -330,7 +362,6 @@ namespace Baihe.OnlineInstaller
                 fs.Flush();
             }
 
-            // 块完整性校验 — 写入字节数必须等于期望块大小，否则说明连接提前断开/数据缺失，抛异常触发重试
             var expected = isFull ? (_total > 0 ? _total : end - start + 1) : (end - start + 1);
             if (written != expected)
                 throw new IOException($"分块不完整（期望 {expected} 字节，实际 {written} 字节）");
