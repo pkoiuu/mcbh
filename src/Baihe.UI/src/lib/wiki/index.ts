@@ -7,7 +7,6 @@ import { loginCategory } from './login'
 import { commandsCategory } from './commands'
 import { sitCategory } from './sit'
 import { skinCategory } from './skin'
-import { farmCategory } from './farm'
 import { versionCategory } from './version'
 import { mapCategory } from './map'
 import { anticheatCategory } from './anticheat'
@@ -19,7 +18,6 @@ export const wikiCategories: WikiCategory[] = [
   commandsCategory,
   sitCategory,
   skinCategory,
-  farmCategory,
   versionCategory,
   mapCategory,
   anticheatCategory,
