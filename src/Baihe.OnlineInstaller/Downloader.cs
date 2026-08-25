@@ -21,8 +21,8 @@ namespace Baihe.OnlineInstaller
         private readonly string _authHeaderName;
         private readonly string _authHeaderValue;
 
-        /// <summary>探测超时（毫秒）</summary>
-        private const int ProbeTimeoutMs = 15000;
+        /// <summary>探测超时（毫秒）— 用户网络慢时放宽到 30s</summary>
+        private const int ProbeTimeoutMs = 30000;
 
         /// <summary>单块读取无数据超时（毫秒）</summary>
         private const int ReadStallTimeoutMs = 30000;
@@ -93,7 +93,7 @@ namespace Baihe.OnlineInstaller
         }
 
         /// <summary>
-        /// 开始下载 — 依次尝试每个候选 URL，整体失败自动重试（最多 3 轮），全部失败返回 false。
+        /// 开始下载 — 依次尝试每个候选 URL；前 2 轮多线程分块，后 2 轮自动降级单线程全量下载兜底。
         /// onProgress(long downloaded, long total, double speedMBps) 高频回调
         /// </summary>
         public async Task<bool> DownloadAsync(
@@ -103,12 +103,13 @@ namespace Baihe.OnlineInstaller
         {
             _onProgress = onProgress;
 
-            const int maxAttempts = 3;
-            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            const int totalRounds = 4; // 1-2 多线程, 3-4 单线程兜底
+            for (var attempt = 1; attempt <= totalRounds; attempt++)
             {
                 if (token.IsCancellationRequested)
                     return false;
 
+                var forceSingle = attempt >= 3;
                 foreach (var url in _urls)
                 {
                     if (string.IsNullOrEmpty(url))
@@ -124,10 +125,9 @@ namespace Baihe.OnlineInstaller
 
                     try
                     {
-                        if (await TryDownloadFromAsync(url, onStatus, token).ConfigureAwait(false))
+                        if (await TryDownloadFromAsync(url, onStatus, token, forceSingle).ConfigureAwait(false))
                             return true;
-                        // 该 URL 失败（含校验不通过），尝试下一个候选或重试
-                        onStatus?.Invoke("下载校验未通过，正在重试...");
+                        onStatus?.Invoke(forceSingle ? "下载未完成，正在重试..." : "下载校验未通过，正在切换方式重试...");
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {
@@ -135,25 +135,41 @@ namespace Baihe.OnlineInstaller
                     }
                     catch
                     {
-                        onStatus?.Invoke("当前线路异常，正在重试...");
+                        onStatus?.Invoke(forceSingle ? "当前线路异常，正在重试..." : "当前线路异常，自动降级单线程重试...");
                     }
                 }
 
-                if (attempt < maxAttempts)
+                if (attempt < totalRounds)
                 {
                     // 整轮重试前清理残留文件
                     try { if (File.Exists(_destPath)) File.Delete(_destPath); } catch { }
-                    onStatus?.Invoke($"第 {attempt} 次尝试失败，正在第 {attempt + 1} 次重试...");
+                    var mode = forceSingle ? "单线程" : "多线程";
+                    onStatus?.Invoke($"第 {attempt} 次尝试失败，正在第 {attempt + 1} 次重试（{mode}）...");
                 }
             }
 
             return false;
         }
 
-        /// <summary>从单个 URL 完整下载（探测 → 分块/单线程 → 校验）</summary>
-        private async Task<bool> TryDownloadFromAsync(string url, Action<string> onStatus, CancellationToken token)
+        /// <summary>
+        /// 从单个 URL 完整下载
+        /// </summary>
+        /// <param name="forceSingle">true=单线程全量下载（最可靠，接受 200/206，读到 EOF）；false=多线程分块（探测 Range 后并发）</param>
+        private async Task<bool> TryDownloadFromAsync(string url, Action<string> onStatus, CancellationToken token, bool forceSingle)
         {
-            // 1. 探测总大小与 Range 支持（15s 超时）
+            if (forceSingle)
+            {
+                // 单线程全量下载 — 不探测、不设 Range，直接 GET 读到 EOF（Content-Length 可能不准，以实际写入为准）
+                onStatus?.Invoke("使用单线程下载（更稳定）...");
+                var written = await DownloadFullAsync(url, token).ConfigureAwait(false);
+                if (written <= 0)
+                    return false;
+                _total = written;
+                _onProgress?.Invoke(written, written, 0);
+                return true;
+            }
+
+            // 1. 探测总大小与 Range 支持（30s 超时）
             onStatus?.Invoke("正在连接下载服务器...");
             var (total, rangeSupported) = await ProbeAsync(url, token);
             if (total <= 0)
@@ -195,6 +211,36 @@ namespace Baihe.OnlineInstaller
 
             _onProgress?.Invoke(total, total, 0);
             return true;
+        }
+
+        /// <summary>单线程全量下载：GET 读到 EOF，返回实际写入字节数</summary>
+        private async Task<long> DownloadFullAsync(string url, CancellationToken token)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            ApplyAuth(req);
+
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
+
+            long written = 0;
+            using (var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
+            using (var fs = new FileStream(_destPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            {
+                var buffer = new byte[128 * 1024];
+                while (true)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var n = await ReadWithStallTimeoutAsync(stream, buffer, token).ConfigureAwait(false);
+                    if (n <= 0)
+                        break;
+                    fs.Write(buffer, 0, n);
+                    written += n;
+                    Report(n);
+                }
+                fs.Flush();
+            }
+            return written;
         }
         private void Report(long delta)
         {
@@ -250,6 +296,10 @@ namespace Baihe.OnlineInstaller
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
+            // Range 分块请求必须返回 206；若服务器返回 200（全量），说明并发/代理行为异常，
+            // 此时按块写入会破坏文件，直接抛异常触发降级重试
+            if (!isFull && resp.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                throw new HttpRequestException($"服务器未返回分块内容（HTTP {(int)resp.StatusCode}），自动降级重试");
 
             long written = 0;
             using (var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))

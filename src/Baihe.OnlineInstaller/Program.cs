@@ -13,7 +13,7 @@ namespace Baihe.OnlineInstaller
     internal static class Program
     {
         /// <summary>当前版本（与主程序同步）</summary>
-        public const string AppVersion = "1.1.19";
+        public const string AppVersion = "1.1.20";
 
         /// <summary>GitHub 仓库</summary>
         public const string RepoOwner = "pkoiuu";
@@ -25,15 +25,69 @@ namespace Baihe.OnlineInstaller
         [STAThread]
         private static void Main(string[] args)
         {
-            if (args != null && args.Length > 0 && args[0] == "--selftest")
+            if (args != null && args.Length > 0)
             {
-                SelfTestAsync().GetAwaiter().GetResult();
-                return;
+                if (args[0] == "--selftest")
+                {
+                    SelfTestAsync().GetAwaiter().GetResult();
+                    return;
+                }
+                if (args[0] == "--download-test")
+                {
+                    DownloadTestAsync().GetAwaiter().GetResult();
+                    return;
+                }
             }
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
+        }
+
+        /// <summary>完整下载实测 — 真实下载最新完整安装包到 %TEMP% 并校验，验证下载链路可用</summary>
+        private static async Task DownloadTestAsync()
+        {
+            var log = new StringBuilder();
+            var ok = false;
+            try
+            {
+                log.AppendLine("[download-test] start");
+                var info = await UpdateService.GetLatestAsync();
+                if (info == null)
+                {
+                    log.AppendLine("FAIL: 无法获取版本信息");
+                }
+                else
+                {
+                    var token = UpdateService.GetToken();
+                    var dest = Path.Combine(Path.GetTempPath(), "baihe_full_dl.exe");
+                    try { if (File.Exists(dest)) File.Delete(dest); } catch { }
+                    log.AppendLine($"url    : {info.BestUrl}");
+                    log.AppendLine($"token  : {(string.IsNullOrEmpty(token) ? "未配置" : "已配置")}");
+
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    using (var dl = new Downloader(info.Candidates, dest, threads: 8,
+                        authHeaderName: "token", authHeaderValue: token))
+                    {
+                        ok = await dl.DownloadAsync(
+                            (d, t, s) => { if (t > 0 && d % (20 * 1024 * 1024) < 128 * 1024) Console.WriteLine($"  {d / 1024 / 1024}MB / {t / 1024 / 1024}MB ({s:0.0}MB/s)"); },
+                            s => Console.WriteLine("  " + s),
+                            System.Threading.CancellationToken.None);
+                    }
+                    sw.Stop();
+                    var fi = new FileInfo(dest);
+                    log.AppendLine($"result : {ok} | 文件 {fi.Length} 字节 | 耗时 {sw.Elapsed.TotalMinutes:0.0} 分钟");
+                }
+            }
+            catch (Exception ex)
+            {
+                log.AppendLine("EXCEPTION: " + ex);
+            }
+            log.AppendLine(ok ? "[download-test] RESULT: PASS" : "[download-test] RESULT: FAIL");
+            Console.WriteLine(log.ToString());
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "baihe_download_test.log"), log.ToString()); }
+            catch { }
+            Environment.Exit(ok ? 0 : 1);
         }
 
         /// <summary>无界面自检 — 验证 API 解析出的下载 URL 是完整安装包（非在线安装器）</summary>

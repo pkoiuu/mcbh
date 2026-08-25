@@ -239,7 +239,7 @@ namespace Baihe.OnlineInstaller
                         _cts.Token);
                     if (!ok)
                     {
-                        SetStatus("下载失败", "文件大小校验不通过，请重试");
+                        SetStatus("下载失败", "多次尝试（多线程+单线程兜底）均未完成，请检查网络连接后重试");
                         _btnAction.Text = "重试";
                         return;
                     }
