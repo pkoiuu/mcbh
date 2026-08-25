@@ -18,6 +18,8 @@ namespace Baihe.OnlineInstaller
         private readonly string _destPath;
         private readonly int _threads;
         private readonly HttpClient _http;
+        private readonly string _authHeaderName;
+        private readonly string _authHeaderValue;
 
         /// <summary>探测超时（毫秒）</summary>
         private const int ProbeTimeoutMs = 15000;
@@ -39,18 +41,55 @@ namespace Baihe.OnlineInstaller
         public string CurrentUrl => _currentUrl;
 
         /// <summary>
+        /// 仅探测（不下载）— 供 selftest 验证线路可达性；返回 (是否成功, 总大小)
+        /// </summary>
+        public async Task<(bool ok, long total)> ProbeForTestAsync()
+        {
+            foreach (var url in _urls)
+            {
+                if (string.IsNullOrEmpty(url))
+                    continue;
+                try
+                {
+                    var (total, _) = await ProbeAsync(url, CancellationToken.None).ConfigureAwait(false);
+                    if (total > 0)
+                        return (true, total);
+                }
+                catch
+                {
+                    // 尝试下一个
+                }
+            }
+            return (false, -1);
+        }
+
+        /// <summary>
         /// 构造下载器
         /// </summary>
         /// <param name="urls">候选 URL 列表（按优先级排序，逐个尝试直到成功）</param>
         /// <param name="destPath">目标文件路径</param>
         /// <param name="threads">下载线程数</param>
-        public Downloader(string[] urls, string destPath, int threads = 8)
+        /// <param name="authHeaderName">可选鉴权 header 名（如 "token"），为空则不添加</param>
+        /// <param name="authHeaderValue">可选鉴权 header 值</param>
+        public Downloader(string[] urls, string destPath, int threads = 8,
+            string authHeaderName = "", string authHeaderValue = "")
         {
             _urls = urls.Length > 0 ? urls : new[] { "" };
             _destPath = destPath;
             _threads = Math.Max(1, Math.Min(threads, 16));
+            _authHeaderName = authHeaderName;
+            _authHeaderValue = authHeaderValue;
             // 单请求超时 5 分钟（响应头到达前的总时限）；流读取另有 stall 超时保护
             _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        }
+
+        /// <summary>给请求附加鉴权 header（如自建加速服务的 token）</summary>
+        private void ApplyAuth(HttpRequestMessage req)
+        {
+            if (!string.IsNullOrEmpty(_authHeaderName) && !string.IsNullOrEmpty(_authHeaderValue))
+            {
+                req.Headers.TryAddWithoutValidation(_authHeaderName, _authHeaderValue);
+            }
         }
 
         /// <summary>
@@ -168,6 +207,7 @@ namespace Baihe.OnlineInstaller
 
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Range = new RangeHeaderValue(0, 0);
+            ApplyAuth(req);
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
@@ -191,6 +231,7 @@ namespace Baihe.OnlineInstaller
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             if (!isFull)
                 req.Headers.Range = new RangeHeaderValue(start, end);
+            ApplyAuth(req);
 
             using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)

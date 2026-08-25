@@ -11,15 +11,21 @@
         <Nullable>disable</Nullable>
         <Deterministic>true</Deterministic>
         <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-        <AssemblyVersion>1.1.17.0</AssemblyVersion>
-        <FileVersion>1.1.17.0</FileVersion>
+        <AssemblyVersion>1.1.18.0</AssemblyVersion>
+        <FileVersion>1.1.18.0</FileVersion>
         <ApplicationIcon />
         <!-- 体积优化 -->
         <DebugType>none</DebugType>
         <DebugSymbols>false</DebugSymbols>
         <Optimize>true</Optimize>
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+        <!-- 自建加速服务令牌：编译时通过 -p:OnlineToken=xxx 注入（release.yml 用 secrets），源码不含令牌 -->
+        <OnlineToken></OnlineToken>
     </PropertyGroup>
+    <ItemGroup>
+        <!-- 令牌编译注入点：程序运行时从 AssemblyMetadata 读取 OnlineToken -->
+        <AssemblyMetadata Include="OnlineToken" Value="$(OnlineToken)" />
+    </ItemGroup>
     <ItemGroup>
         <!-- .NET Framework 4.8 引用程序集（编译所需，CI/本地均可还原） -->
         <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />

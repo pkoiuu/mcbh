@@ -202,12 +202,15 @@ namespace Baihe.OnlineInstaller
                 }
                 _releaseInfo = info;
 
-                // 2. 测速选线路
-                SetStatus("正在选择最快下载线路...", $"发现新版本 v{info.Version}");
-                info = await UpdateService.PickFastestAsync(info);
-                if (string.IsNullOrEmpty(info.BestUrl))
-                    info.BestUrl = info.DownloadUrl;
-                SetStatus("线路选择完成", $"线路：{info.Source}（{info.SpeedMbps:0.0} MB/s）");
+                // 2. 固定加速服务下载（不测速，直接使用自建加速地址）
+                var token = UpdateService.GetToken();
+                if (string.IsNullOrEmpty(token))
+                {
+                    SetStatus("配置缺失", "加速服务令牌未配置（BAIHE_ONLINE_TOKEN）");
+                    _btnAction.Text = "重试";
+                    return;
+                }
+                SetStatus("正在连接加速服务器...", $"发现新版本 v{info.Version} · 自建加速线路");
 
                 // 3. 下载
                 _tempExePath = Path.Combine(Path.GetTempPath(), $"BaiheServer_Setup_v{info.Version}_dl.exe");
@@ -217,9 +220,11 @@ namespace Baihe.OnlineInstaller
                 using (var dl = new Downloader(
                     info.Candidates != null && info.Candidates.Length > 0
                         ? info.Candidates
-                        : new[] { info.BestUrl, info.DownloadUrl },
+                        : new[] { info.BestUrl },
                     _tempExePath,
-                    threads: 8))
+                    threads: 8,
+                    authHeaderName: "token",
+                    authHeaderValue: token))
                 {
                     var ok = await dl.DownloadAsync(
                         (down, total, speed) =>

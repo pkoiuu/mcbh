@@ -13,7 +13,7 @@ namespace Baihe.OnlineInstaller
     internal static class Program
     {
         /// <summary>当前版本（与主程序同步）</summary>
-        public const string AppVersion = "1.1.17";
+        public const string AppVersion = "1.1.18";
 
         /// <summary>GitHub 仓库</summary>
         public const string RepoOwner = "pkoiuu";
@@ -53,25 +53,30 @@ namespace Baihe.OnlineInstaller
                 else
                 {
                     log.AppendLine($"latest version : {info.Version}");
-                    log.AppendLine($"download url   : {info.DownloadUrl}");
+                    log.AppendLine($"download url   : {info.BestUrl}");
 
-                    ok = info.DownloadUrl.IndexOf("BaiheServer_Setup", StringComparison.OrdinalIgnoreCase) >= 0
-                         && info.DownloadUrl.IndexOf("OnlineSetup", StringComparison.OrdinalIgnoreCase) < 0;
+                    ok = info.BestUrl.IndexOf("BaiheServer_Setup", StringComparison.OrdinalIgnoreCase) >= 0
+                         && info.BestUrl.StartsWith("http://199.68.217.4:8090/", StringComparison.OrdinalIgnoreCase);
                     log.AppendLine(ok
-                        ? "target check   : PASS（指向完整安装包）"
-                        : "target check   : FAIL（未指向完整安装包！）");
+                        ? "target check   : PASS（指向自建加速服务的完整安装包）"
+                        : "target check   : FAIL（未指向自建加速服务！）");
 
-                    // 线路择优（真实测速）
+                    // 加速服务可达性实测（带 token 探测）
                     try
                     {
-                        var best = await UpdateService.PickFastestAsync(info);
-                        log.AppendLine($"best line      : {best.Source} ({best.SpeedMbps:0.0} MB/s)");
-                        log.AppendLine($"candidates     : {best.Candidates.Length} 条（含直链兜底）");
-                        log.AppendLine($"best url       : {best.BestUrl}");
+                        var token = UpdateService.GetToken();
+                        log.AppendLine($"token          : {(string.IsNullOrEmpty(token) ? "未配置（BAIHE_ONLINE_TOKEN）" : "已配置（长度 " + token.Length + "）")}");
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            using var dl = new Downloader(new[] { info.BestUrl }, Path.Combine(Path.GetTempPath(), "baihe_probe.tmp"),
+                                threads: 8, authHeaderName: "token", authHeaderValue: token);
+                            var okProbe = await dl.ProbeForTestAsync();
+                            log.AppendLine($"probe          : {okProbe}");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        log.AppendLine($"line check     : 测速异常（不影响主结论）: {ex.Message}");
+                        log.AppendLine($"probe          : 异常: {ex.Message}");
                     }
                 }
 

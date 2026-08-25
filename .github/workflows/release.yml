@@ -69,6 +69,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BAIHE_ONLINE_TOKEN: ${{ secrets.BAIHE_ONLINE_TOKEN }}
         run: |
           Write-Host '=== Starting parallel preparation phase ==='
           New-Item -ItemType Directory -Path 'dist\launcher' -Force | Out-Null
@@ -112,11 +113,16 @@ jobs:
           } -ArgumentList $PWD
 
           # 5. 在线安装器构建 (后台, 约 15-30s, net48 独立项目) — 并入并行阶段省串行时间
+          # 自建加速服务令牌从 secrets 注入（源码不含令牌）
           $onlineJob = Start-Job -ScriptBlock {
-            param($workDir)
+            param($workDir, $onlineToken)
             Set-Location $workDir
-            dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo 2>&1
-          } -ArgumentList $PWD
+            if (-not [string]::IsNullOrEmpty($onlineToken)) {
+              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo -p:OnlineToken=$onlineToken 2>&1
+            } else {
+              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo 2>&1
+            }
+          } -ArgumentList $PWD, $env:BAIHE_ONLINE_TOKEN
 
           # 6. 前端构建 (前台, 约 15s)
           Write-Host '--- Building frontend ---'
