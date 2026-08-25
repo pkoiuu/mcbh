@@ -130,7 +130,9 @@ public static class UpdateService
             var body = root.TryGetProperty("body", out var bodyProp)
                 ? bodyProp.GetString() ?? "" : "";
 
-            // 查找 .exe 安装包下载链接
+            // 查找完整安装包 .exe 下载链接
+            // 注意: 排除在线安装器（BaiheOnlineSetup，v1.1.11+），它在 assets 中排在完整安装包前面，
+            //       不排除会导致"下载更新"拿到在线安装器而不是完整安装包
             string downloadUrl = htmlUrl;
             if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.GetArrayLength() > 0)
             {
@@ -139,7 +141,9 @@ public static class UpdateService
                     if (asset.TryGetProperty("name", out var nameProp))
                     {
                         var name = nameProp.GetString() ?? "";
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                            && name.IndexOf("OnlineSetup", StringComparison.OrdinalIgnoreCase) < 0
+                            && name.IndexOf("BaiheOnline", StringComparison.OrdinalIgnoreCase) < 0)
                         {
                             if (asset.TryGetProperty("browser_download_url", out var dlProp))
                                 downloadUrl = dlProp.GetString() ?? htmlUrl;

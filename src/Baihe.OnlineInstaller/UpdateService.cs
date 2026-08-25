@@ -94,13 +94,16 @@ namespace Baihe.OnlineInstaller
                     info.ReleaseUrl = GetString(doc, "html_url");
                     info.Notes = GetString(doc, "body");
 
-                    // 找 .exe 安装包
+                    // 找完整安装包 .exe（排除在线安装器自身！release 里 BaiheOnlineSetup 排在前面，
+                    // 若不排除会把"在线安装器"当成"完整安装包"下载，导致下载后又是在线下载界面）
                     foreach (var item in GetArray(doc, "assets"))
                     {
                         var asset = item as Dictionary<string, object>;
                         if (asset == null) continue;
                         var name = GetString(asset, "name");
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                            && name.IndexOf("OnlineSetup", StringComparison.OrdinalIgnoreCase) < 0
+                            && name.IndexOf("BaiheOnline", StringComparison.OrdinalIgnoreCase) < 0)
                         {
                             info.DownloadUrl = GetString(asset, "browser_download_url");
                             break;
