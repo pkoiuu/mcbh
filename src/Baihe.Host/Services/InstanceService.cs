@@ -82,12 +82,31 @@ public static class InstanceService
                 var hasJar = File.Exists(jarPath);
                 var hasInheritsFrom = root.TryGetProperty("inheritsFrom", out var inheritsProp)
                     && inheritsProp.ValueKind == JsonValueKind.String;
+
+                // 严格判断: 有 inheritsFrom 的 Fabric/Forge 实例，parent jar 也必须存在才算已安装
+                // （防止升级后旧版本目录残留但 parent jar 已删除的情况）
+                bool isInstalled;
+                if (hasJar)
+                {
+                    isInstalled = true;
+                }
+                else if (hasInheritsFrom)
+                {
+                    var parentId = inheritsProp.GetString() ?? "";
+                    var parentJar = Path.Combine(versionsDir, parentId, $"{parentId}.jar");
+                    isInstalled = File.Exists(parentJar);
+                }
+                else
+                {
+                    isInstalled = false;
+                }
+
                 var instance = new GameInstance
                 {
                     Id = id,
                     Version = root.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? id : id,
                     Type = root.TryGetProperty("type", out var typeProp) ? typeProp.GetString() ?? "release" : "release",
-                    IsInstalled = hasJar || hasInheritsFrom,
+                    IsInstalled = isInstalled,
                 };
 
                 // 检测加载器类型
@@ -163,13 +182,15 @@ public static class InstanceService
         {
             var selectedId = await File.ReadAllTextAsync(configPath);
             var selected = instances.FirstOrDefault(i => i.Id == selectedId.Trim());
-            if (selected != null)
+            // 选中实例必须存在且 IsInstalled=true（防止升级后旧实例残留但 parent jar 已删除）
+            if (selected != null && selected.IsInstalled)
                 return selected;
         }
 
-        // 参照 PCL CE [启航定制]: 优先选择 Fabric 实例
+        // 回退: 优先选择已安装的 Fabric 实例
         return instances.FirstOrDefault(i => i.IsInstalled && i.Id.Contains("fabric", StringComparison.OrdinalIgnoreCase))
             ?? instances.FirstOrDefault(i => i.IsInstalled)
-            ?? instances[0];
+            ?? instances.FirstOrDefault()
+            ?? null;
     }
 }

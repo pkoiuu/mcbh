@@ -7,7 +7,7 @@
 ; ============================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.23"
+  #define MyAppVersion "1.1.24"
 #endif
 
 [Setup]
@@ -117,6 +117,8 @@ Type: files; Name: "{app}\.minecraft\mods\*1.21.3*"
 Type: files; Name: "{app}\.minecraft\mods\*1.21.2*"
 Type: files; Name: "{app}\.minecraft\mods\cloth-config-16.0.143-fabric.jar"
 Type: files; Name: "{app}\.minecraft\mods\modmenu-12.0.1.jar"
+; 清理旧的实例选择（升级后自动选新的 1.21.8 实例，避免指向已删除的 1.21.3）
+Type: files; Name: "{app}\current_instance.txt"
 
 [Icons]
 ; 桌面快捷方式 — 使用 userdesktop 避免 lowest 权限下 commondesktop 的问题
