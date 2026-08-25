@@ -7,8 +7,8 @@
         <Company>白鹤服务器</Company>
         <Product>Baihe.Host</Product>
         <Copyright>Copyright © PCL Community 2026, 白鹤服务器</Copyright>
-        <AssemblyVersion>1.1.18.0</AssemblyVersion>
-        <FileVersion>1.1.18.0</FileVersion>
+        <AssemblyVersion>1.1.19.0</AssemblyVersion>
+        <FileVersion>1.1.19.0</FileVersion>
     </PropertyGroup>
     <PropertyGroup>
         <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
@@ -34,9 +34,16 @@
         <PublishSingleFile>false</PublishSingleFile>
         <SelfContained>true</SelfContained>
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <!-- 自建加速服务令牌：编译时 -p:OnlineToken=xxx 注入（release.yml 用 secrets），源码不含令牌 -->
+        <OnlineToken></OnlineToken>
         <!-- 应用图标 -->
         <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     </PropertyGroup>
+
+    <!-- 令牌编译注入点：UpdateService 运行时从 AssemblyMetadata 读取 OnlineToken -->
+    <ItemGroup>
+        <AssemblyMetadata Include="OnlineToken" Value="$(OnlineToken)" />
+    </ItemGroup>
 
     <!-- 资源文件 — icon.ico 嵌入为 WPF Resource 供 TrayService 加载 -->
     <ItemGroup>

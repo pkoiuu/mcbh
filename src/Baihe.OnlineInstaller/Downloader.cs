@@ -93,7 +93,7 @@ namespace Baihe.OnlineInstaller
         }
 
         /// <summary>
-        /// 开始下载 — 依次尝试每个候选 URL，全部失败返回 false。
+        /// 开始下载 — 依次尝试每个候选 URL，整体失败自动重试（最多 3 轮），全部失败返回 false。
         /// onProgress(long downloaded, long total, double speedMBps) 高频回调
         /// </summary>
         public async Task<bool> DownloadAsync(
@@ -103,33 +103,47 @@ namespace Baihe.OnlineInstaller
         {
             _onProgress = onProgress;
 
-            foreach (var url in _urls)
+            const int maxAttempts = 3;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                if (string.IsNullOrEmpty(url))
-                    continue;
                 if (token.IsCancellationRequested)
                     return false;
 
-                _currentUrl = url;
-                _downloaded = 0;
-                _completedChunks = 0;
-                _lastTick = Environment.TickCount;
-                _lastBytes = 0;
+                foreach (var url in _urls)
+                {
+                    if (string.IsNullOrEmpty(url))
+                        continue;
+                    if (token.IsCancellationRequested)
+                        return false;
 
-                try
-                {
-                    if (await TryDownloadFromAsync(url, onStatus, token).ConfigureAwait(false))
-                        return true;
-                    // 该 URL 失败，尝试下一个
-                    onStatus?.Invoke("当前线路不可用，正在切换备用线路...");
+                    _currentUrl = url;
+                    _downloaded = 0;
+                    _completedChunks = 0;
+                    _lastTick = Environment.TickCount;
+                    _lastBytes = 0;
+
+                    try
+                    {
+                        if (await TryDownloadFromAsync(url, onStatus, token).ConfigureAwait(false))
+                            return true;
+                        // 该 URL 失败（含校验不通过），尝试下一个候选或重试
+                        onStatus?.Invoke("下载校验未通过，正在重试...");
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        return false; // 用户取消
+                    }
+                    catch
+                    {
+                        onStatus?.Invoke("当前线路异常，正在重试...");
+                    }
                 }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
+
+                if (attempt < maxAttempts)
                 {
-                    return false; // 用户取消
-                }
-                catch
-                {
-                    onStatus?.Invoke("当前线路异常，正在切换备用线路...");
+                    // 整轮重试前清理残留文件
+                    try { if (File.Exists(_destPath)) File.Delete(_destPath); } catch { }
+                    onStatus?.Invoke($"第 {attempt} 次尝试失败，正在第 {attempt + 1} 次重试...");
                 }
             }
 
@@ -174,10 +188,10 @@ namespace Baihe.OnlineInstaller
 
             token.ThrowIfCancellationRequested();
 
-            // 3. 校验大小
+            // 3. 校验大小 — 不通过视为失败（抛异常触发上层自动重试），而不是直接返回 false
             var fi = new FileInfo(_destPath);
-            if (total > 0 && fi.Exists && fi.Length != total)
-                return false;
+            if (total > 0 && (!fi.Exists || fi.Length != total))
+                throw new IOException($"文件大小校验不通过（期望 {total}，实际 {(fi.Exists ? fi.Length : 0)}）");
 
             _onProgress?.Invoke(total, total, 0);
             return true;
@@ -237,6 +251,7 @@ namespace Baihe.OnlineInstaller
             if (!resp.IsSuccessStatusCode)
                 throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
 
+            long written = 0;
             using (var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
             using (var fs = new FileStream(_destPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite))
             {
@@ -252,10 +267,16 @@ namespace Baihe.OnlineInstaller
                     if (n <= 0)
                         break;
                     fs.Write(buffer, 0, n);
+                    written += n;
                     Report(n);
                 }
                 fs.Flush();
             }
+
+            // 块完整性校验 — 写入字节数必须等于期望块大小，否则说明连接提前断开/数据缺失，抛异常触发重试
+            var expected = isFull ? (_total > 0 ? _total : end - start + 1) : (end - start + 1);
+            if (written != expected)
+                throw new IOException($"分块不完整（期望 {expected} 字节，实际 {written} 字节）");
 
             Interlocked.Increment(ref _completedChunks);
         }

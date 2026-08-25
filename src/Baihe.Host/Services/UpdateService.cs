@@ -138,42 +138,11 @@ public static class UpdateService
             var body = root.TryGetProperty("body", out var bodyProp)
                 ? bodyProp.GetString() ?? "" : "";
 
-            // 查找完整安装包 .exe 下载链接
-            // 注意: 排除在线安装器（BaiheOnlineSetup，v1.1.11+），它在 assets 中排在完整安装包前面，
-            //       不排除会导致"下载更新"拿到在线安装器而不是完整安装包
-            string downloadUrl = htmlUrl;
-            if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.GetArrayLength() > 0)
-            {
-                foreach (var asset in assetsProp.EnumerateArray())
-                {
-                    if (asset.TryGetProperty("name", out var nameProp))
-                    {
-                        var name = nameProp.GetString() ?? "";
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                            && name.IndexOf("OnlineSetup", StringComparison.OrdinalIgnoreCase) < 0
-                            && name.IndexOf("BaiheOnline", StringComparison.OrdinalIgnoreCase) < 0)
-                        {
-                            if (asset.TryGetProperty("browser_download_url", out var dlProp))
-                                downloadUrl = dlProp.GetString() ?? htmlUrl;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 速度优先 — 对真实下载 URL 并行测速（早退），选最快镜像；结果短缓存 10 分钟
+            // 下载链接固定使用自建加速服务（8091 浏览器直链，URL 带 token）
+            // 说明: 加速 URL 不是 https://github.com/ 开头，下方镜像测速逻辑自动跳过
+            string downloadUrl = BuildAcceleratedUrl(latestVersion);
             double speedMbps = 0;
-            string source = "GitHub 直链";
-            if (downloadUrl.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-            {
-                var best = await PickFastestMirrorCachedAsync(downloadUrl, mirrors);
-                if (best != null)
-                {
-                    downloadUrl = best.Url;
-                    speedMbps = best.SpeedMbps;
-                    source = best.MirrorHost;
-                }
-            }
+            string source = "自建加速";
 
             var hasUpdate = IsNewerVersion(latestVersion, currentVersion);
 
@@ -515,6 +484,43 @@ public static class UpdateService
             return latestVer > currentVer;
         }
         return false;
+    }
+
+    /// <summary>自建加速服务浏览器直链（8091，URL 带 token，浏览器可直接下载）</summary>
+    private const string AcceleratorBrowserBase = "http://199.68.217.4:8091";
+
+    /// <summary>
+    /// 构造自建加速服务的完整安装包下载 URL（格式: 加速地址 + github.com/原路径 + ?token=）
+    /// </summary>
+    private static string BuildAcceleratedUrl(string version)
+    {
+        var token = GetOnlineToken();
+        var exeName = $"BaiheServer_Setup_v{version}.exe";
+        var baseUrl = $"{AcceleratorBrowserBase}/github.com/{RepoOwner}/{RepoName}/releases/download/v{version}/{exeName}";
+        return string.IsNullOrEmpty(token) ? baseUrl : baseUrl + "?token=" + Uri.EscapeDataString(token);
+    }
+
+    /// <summary>
+    /// 读取自建加速服务 token — 优先编译注入的 AssemblyMetadata（release.yml -p:OnlineToken），
+    /// 其次环境变量 BAIHE_ONLINE_TOKEN（本地调试）；源码不含令牌
+    /// </summary>
+    private static string GetOnlineToken()
+    {
+        var env = Environment.GetEnvironmentVariable("BAIHE_ONLINE_TOKEN");
+        if (!string.IsNullOrEmpty(env))
+            return env;
+        try
+        {
+            foreach (var attr in System.Reflection.Assembly.GetExecutingAssembly()
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+            {
+                var m = (System.Reflection.AssemblyMetadataAttribute)attr;
+                if (m.Key == "OnlineToken" && !string.IsNullOrEmpty(m.Value))
+                    return m.Value;
+            }
+        }
+        catch { }
+        return "";
     }
 }
 

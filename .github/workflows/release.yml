@@ -157,17 +157,31 @@ jobs:
 
       # ===== 发布后端 (多进程编译, 跳过冗余 restore) =====
       - name: Publish Baihe.Host
+        env:
+          BAIHE_ONLINE_TOKEN: ${{ secrets.BAIHE_ONLINE_TOKEN }}
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           Write-Host "Publishing version: $version"
-          dotnet publish src/Baihe.Host/Baihe.Host.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=false `
-            -p:PublishReadyToRun=true `
-            -p:PublishTrimmed=false `
-            -p:AssemblyVersion=$version `
-            -p:FileVersion=$version `
-            -o dist\launcher -m --no-restore
+          if (-not [string]::IsNullOrEmpty($env:BAIHE_ONLINE_TOKEN)) {
+            dotnet publish src/Baihe.Host/Baihe.Host.csproj `
+              -c Release -r win-x64 --self-contained true `
+              -p:PublishSingleFile=false `
+              -p:PublishReadyToRun=true `
+              -p:PublishTrimmed=false `
+              -p:AssemblyVersion=$version `
+              -p:FileVersion=$version `
+              -p:OnlineToken=$env:BAIHE_ONLINE_TOKEN `
+              -o dist\launcher -m --no-restore
+          } else {
+            dotnet publish src/Baihe.Host/Baihe.Host.csproj `
+              -c Release -r win-x64 --self-contained true `
+              -p:PublishSingleFile=false `
+              -p:PublishReadyToRun=true `
+              -p:PublishTrimmed=false `
+              -p:AssemblyVersion=$version `
+              -p:FileVersion=$version `
+              -o dist\launcher -m --no-restore
+          }
 
       # ===== 复制附加资源 =====
       - name: Copy installer resources
