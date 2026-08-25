@@ -3,7 +3,7 @@
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
 > 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
 > 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
-> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（玩家指南维基 + 默认允许资源包 + 服务器列表选择）→ **v1.1.11**（修复 + 在线版安装器 40KB）→ **v1.1.12**（修复 assets 误选 + --selftest）→ **v1.1.13**（在线安装器 mac 美化/16 线程/防堆叠/防卡顿 + 构建并行化 + Inno 压缩提速 + 移除服务器选择框 + 窗口出现才显示运行中）。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（维基+资源包+服务器列表）→ **v1.1.11**（修复+在线安装器）→ **v1.1.12**（assets 误选修复）→ **v1.1.13**（mac 美化/16线程/窗口运行中）→ **v1.1.14**（搜索框加宽）→ **v1.1.15**（镜像 24+兜底同步/测速精准/8线程 + 维基远程编辑 wiki.json + 农夫乐事完整指南 + 搜索框重构 + 网页版维基 GitHub Pages）。
 
 ---
 
@@ -57,11 +57,11 @@ src/
 │   ├── Ipc/                      # IpcMessage.cs + IpcRouter.cs（IPC 协议与路由）
 │   ├── Web/WebViewHost.cs        # WebView2 环境创建 + 虚拟主机映射
 │   ├── Models/                   # McAccount / OfflineAccount / GameInstance
-│   └── Services/                 # 24 个业务服务（见 §6；NewsService/ShaderService/MinecraftRules 为 v1.1.3~1.1.8 新增）
+│   └── Services/                 # 25 个业务服务（+WikiService v1.1.15 拉取 wiki.json）
 ├── Baihe.OnlineInstaller/        # 在线版安装器（v1.1.11+，.NET Framework 4.8 WinForms，独立构建，~40KB）
-│   ├── Program.cs                # 入口（AppVersion 常量）
-│   ├── MainForm.cs               # 无边框自绘界面 + 流程编排（查版本→测速→下载→启动安装）
-│   ├── UpdateService.cs          # GitHub API + mirrors.json 镜像测速择优（内置 SimpleJson）
+│   ├── Program.cs                # 入口（AppVersion 常量 + --selftest 自检）
+│   ├── MainForm.cs               # 无边框自绘界面（mac 风格）+ 流程编排（查版本→测速→下载→启动安装）
+│   ├── UpdateService.cs          # GitHub API + mirrors.json 镜像测速择优（12 内置兜底）
 │   ├── Downloader.cs             # 8 线程 HTTP Range 分块下载 + 进度/取消/断点探测
 │   └── SimpleJson.cs             # 极简 JSON 解析（不引第三方库，保持体积）
 └── Baihe.UI/                     # Svelte 5 前端（构建输出到 ../Baihe.Host/wwwroot）
@@ -70,8 +70,10 @@ src/
         ├── main.ts / App.svelte  # 入口 + 根组件（路由切换 + 微信名弹窗 + Toast）
         ├── app.css               # 设计令牌系统（Tailwind 4 @theme + CSS 变量双层）
         ├── components/           # WindowShell / Sidebar / WeChatDialog / ShadersPanel(v1.1.3+) / SaveManager(v1.1.3+)
-        ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）+ shaders.ts(v1.1.3+)
+        ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）+ shaders.ts + wiki/
         └── pages/                # Home / Download / Settings / Tools / Login / Wiki(v1.1.10+)
+wiki.json                         # 维基远程数据源（v1.1.15+；scripts/generate-wiki-json.mjs 生成，直接编辑即更新维基）
+wiki-site/                        # 网页版维基（v1.1.15+，纯静态单页 + GitHub Pages，.github/workflows/pages.yml）
 PCL2-CE/                          # 上游 Plain Craft Launcher 2 CE 的 fork（仅参考，不参与构建）
 installer/                        # Inno Setup 安装脚本
 installer_resources/              # 开发期资源：.minecraft、jre、icon.ico、ChineseSimplified.isl
@@ -246,6 +248,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | app.getVersion | — | 版本字符串 | 优先 FileVersion（Release 从 tag 注入），回退 AssemblyVersion（无硬编码） |
 | update.check | {force?} | UpdateInfo | GitHub Releases；**v1.1.5+ 有 1h 结果缓存，`force:true` 强制刷新**；失败静默返回无更新 |
 | news.list | — | NewsItem[] | 首页最新动态（v1.1.8+）：拉取仓库 news.json，失败回退内置 |
+| wiki.get | — | WikiCategory[] | 玩家指南维基（v1.1.15+）：拉取仓库 wiki.json（可远程编辑），失败返回空（前端回退内置） |
 | version.list | typeFilter? | {latest, versions[]} | Mojang 清单（24h 缓存） |
 | instance.list | — | GameInstance[] | 扫描 versions/ |
 | instance.current | — | GameInstance | 当前实例（无实例时后端 `!` 解引用可能抛错，前端 Home 有兜底） |
