@@ -35,17 +35,25 @@ public static class UpdateService
     private static readonly string MirrorsJsonUrl =
         $"https://raw.githubusercontent.com/{RepoOwner}/{RepoName}/main/mirrors.json";
 
-    /// <summary>内置默认镜像前缀列表（兜底）— 仅在 mirrors.json 拉取失败时使用</summary>
+    /// <summary>内置默认镜像前缀列表（兜底）— 仅在 mirrors.json 拉取失败时使用，与主数据源同步</summary>
     private static readonly string[] BuiltinMirrorPrefixes =
     {
         "https://ghfast.top/",
         "https://ghproxy.net/",
         "https://gh-proxy.com/",
         "https://ghproxy.link/",
+        "https://gh.ddlc.top/",
+        "https://ghproxy.cn/",
+        "https://gh.llkk.cc/",
+        "https://ghproxy.cxkpro.top/",
+        "https://gh.xxooo.cf/",
+        "https://github.limoruirui.com/",
+        "https://ghproxy.monkeyray.net/",
+        "https://gh.xx9527.cn/",
     };
 
-    /// <summary>测速下载的字节数（512KB）</summary>
-    private const int SpeedProbeBytes = 512 * 1024;
+    /// <summary>测速下载的字节数（1MB — 更大采样窗口，速度更精准）</summary>
+    private const int SpeedProbeBytes = 1024 * 1024;
 
     /// <summary>测速早退阈值（MB/s）— 有镜像超过此速度立即返回</summary>
     private const double EarlyExitSpeedMbps = 3.0;
@@ -353,9 +361,10 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 测量单个镜像的下载速度 — 普通 GET 读取前 512KB 后立即断开，返回 MB/s；失败返回 0。
+    /// 测量单个镜像的下载速度 — 普通 GET 读取前 1MB 后立即断开，返回 MB/s；失败返回 0。
     /// 不使用 Range 头：部分镜像不支持 Range（返回全量但被截断），普通 GET 读取固定字节更可靠；
-    /// 读取够 512KB 后释放响应流即中止连接，不会真正下载完整安装包。
+    /// 读取够 1MB 后释放响应流即中止连接，不会真正下载完整安装包。
+    /// 计时从收到第一个数据字节后开始（排除 DNS/连接/TLS 握手，测纯吞吐更精准）
     /// </summary>
     private static async Task<double> MeasureSpeedAsync(string url, CancellationToken token)
     {
@@ -363,14 +372,20 @@ public static class UpdateService
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             if (!response.IsSuccessStatusCode)
                 return 0;
 
             await using var stream = await response.Content.ReadAsStreamAsync(token);
             var buffer = new byte[64 * 1024];
-            long total = 0;
+
+            // 先读第一段，跳过连接/握手耗时，从数据流开始计时
+            var first = await stream.ReadAsync(buffer, token);
+            if (first <= 0)
+                return 0;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long total = first;
             while (total < SpeedProbeBytes)
             {
                 var read = await stream.ReadAsync(buffer, token);

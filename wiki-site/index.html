@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>白鹤服务器 · 玩家指南</title>
+<style>
+  :root {
+    --bg: #131316;
+    --bg2: #1a1a1e;
+    --card: #222226;
+    --card2: #2a2a30;
+    --border: #33333a;
+    --text: #f0f0f5;
+    --dim: #9a9aa5;
+    --accent: #007aff;
+    --accent2: #66abff;
+    --success: #34c759;
+    --red: #ff5f57; --yellow: #febc2e; --green: #28c840;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "SF Pro Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* 顶部 */
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 22px; background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+  .traffic { display: flex; gap: 8px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .traffic span:nth-child(1) { background: var(--red); }
+  .traffic span:nth-child(2) { background: var(--yellow); }
+  .traffic span:nth-child(3) { background: var(--green); }
+  header h1 { font-size: 15px; font-weight: 600; }
+  header .sub { font-size: 12px; color: var(--dim); }
+  /* 搜索框 */
+  .search-wrap { margin-left: auto; position: relative; }
+  .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .5; pointer-events: none; }
+  .search-wrap input {
+    width: 280px; height: 34px; padding: 0 32px 0 32px;
+    border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 13px; outline: none;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap input::placeholder { color: var(--dim); }
+  .clear-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    border: 0; background: none; color: var(--dim); font-size: 12px; cursor: pointer;
+  }
+  .clear-btn:hover { color: var(--text); }
+  /* 主体 */
+  main { flex: 1; display: flex; min-height: 0; }
+  nav.sidebar {
+    width: 230px; overflow-y: auto; padding: 14px 10px;
+    border-right: 1px solid var(--border); background: var(--bg2);
+  }
+  nav.sidebar .cat { margin-bottom: 4px; }
+  nav.sidebar .cat-btn {
+    width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 8px;
+    background: none; color: var(--dim); font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  nav.sidebar .cat-btn:hover { background: var(--card2); }
+  nav.sidebar .cat-btn.active { background: var(--card2); color: var(--text); }
+  nav.sidebar .cat-btn.active::before { content: "·"; color: var(--accent); margin-right: 4px; font-weight: 700; }
+  nav.sidebar .pages { margin-left: 14px; border-left: 1px solid var(--border); padding-left: 8px; display: none; }
+  nav.sidebar .cat.open .pages { display: block; }
+  nav.sidebar .page-btn {
+    display: block; width: 100%; text-align: left; padding: 5px 8px; border: 0; border-radius: 6px;
+    background: none; color: var(--dim); font-size: 12px; cursor: pointer;
+  }
+  nav.sidebar .page-btn:hover { color: var(--text); }
+  nav.sidebar .page-btn.active { background: var(--card2); color: var(--text); }
+  /* 内容 */
+  .content { flex: 1; overflow-y: auto; padding: 26px 30px; }
+  .content .crumb { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  .content h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .content .summary { font-size: 13px; color: var(--dim); margin-bottom: 18px; }
+  .content .block { margin-bottom: 18px; }
+  .content .caption { font-size: 12px; font-weight: 600; color: var(--dim); margin-bottom: 6px; }
+  .content table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    background: var(--card); border-radius: 12px; overflow: hidden;
+  }
+  .content th {
+    text-align: left; padding: 9px 12px; font-weight: 600;
+    background: var(--card2); border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .content td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--dim); }
+  .content td:first-child { color: var(--text); font-weight: 500; }
+  .content tr:last-child td { border-bottom: 0; }
+  .content .text p { font-size: 13px; color: var(--dim); line-height: 1.7; margin-bottom: 4px; }
+  .content .tip {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.7; color: var(--text);
+  }
+  .content .tip b { color: var(--accent2); }
+  mark { background: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--text); border-radius: 3px; padding: 0 2px; }
+  .empty { text-align: center; color: var(--dim); padding: 80px 0; font-size: 14px; }
+  footer { padding: 8px 22px; font-size: 11px; color: var(--dim); border-top: 1px solid var(--border); background: var(--bg2); }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="traffic"><span></span><span></span><span></span></div>
+  <div>
+    <h1>白鹤服务器 · 玩家指南</h1>
+    <div class="sub">Minecraft 1.21.8 · 普通玩家查询手册</div>
+  </div>
+  <div class="search-wrap">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="search" type="text" placeholder="搜索指令 / 关键词，如 home、资源包…" />
+    <button class="clear-btn" id="clearBtn" style="display:none">清除</button>
+  </div>
+</header>
+<main>
+  <nav class="sidebar" id="sidebar"></nav>
+  <div class="content" id="content"></div>
+</main>
+<footer>白鹤服务器启动器 · 数据源 <span id="src">wiki.json</span> · 可在 GitHub 仓库直接编辑更新</footer>
+
+<script>
+  // ===== 数据加载（wiki.json，与启动器共用同一数据源）=====
+  let categories = [];
+  let query = '';
+  let activeCat = '';
+  let activePage = '';
+
+  const sidebarEl = document.getElementById('sidebar');
+  const contentEl = document.getElementById('content');
+  const searchEl = document.getElementById('search');
+  const clearBtn = document.getElementById('clearBtn');
+  const srcEl = document.getElementById('src');
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escRe(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  function hl(text) {
+    const kw = query.trim();
+    const e = esc(text);
+    if (!kw) return e;
+    return e.replace(new RegExp('(' + escRe(esc(kw)) + ')', 'gi'), '<mark>$1</mark>');
+  }
+
+  async function load() {
+    try {
+      const resp = await fetch('./wiki.json?t=' + Date.now());
+      const data = await resp.json();
+      if (data && Array.isArray(data.categories) && data.categories.length > 0) {
+        categories = data.categories;
+        srcEl.textContent = 'wiki.json（GitHub 远程）';
+        return;
+      }
+    } catch (e) { /* 失败走内置 */ }
+    srcEl.textContent = '内置内容（wiki.json 加载失败）';
+  }
+
+  // ===== 渲染 =====
+  function rowMatches(row) {
+    const kw = query.trim().toLowerCase();
+    if (!kw) return true;
+    return row.some(c => String(c).toLowerCase().includes(kw));
+  }
+  function blockVisible(block) {
+    if (!query.trim()) return true;
+    if (block.kind === 'table') return block.rows.some(rowMatches);
+    if (block.kind === 'text') return block.lines.some(l => l.toLowerCase().includes(query.trim().toLowerCase()));
+    return ((block.title || '').toLowerCase().includes(query.trim().toLowerCase())
+      || block.lines.some(l => l.toLowerCase().includes(query.trim().toLowerCase())));
+  }
+  function renderBlock(block) {
+    if (block.kind === 'table') {
+      const rows = query.trim() ? block.rows.filter(rowMatches) : block.rows;
+      if (!rows.length && query.trim()) return '';
+      return '<div class="block">'
+        + (block.caption ? '<div class="caption">' + esc(block.caption) + '</div>' : '')
+        + '<table><thead><tr>' + block.headers.map(h => '<th>' + hl(h) + '</th>').join('') + '</tr></thead><tbody>'
+        + rows.map(r => '<tr>' + r.map((c, i) => '<td>' + hl(c) + '</td>').join('') + '</tr>').join('')
+        + '</tbody></table></div>';
+    }
+    if (block.kind === 'text') {
+      return '<div class="block text">' + block.lines.filter(l => !query.trim() || l.toLowerCase().includes(query.trim().toLowerCase()))
+        .map(l => '<p>' + hl(l) + '</p>').join('') + '</div>';
+    }
+    return '<div class="block tip"><b>' + hl(block.title || '注意') + '</b><br>' +
+      block.lines.filter(l => !query.trim() || l.toLowerCase().includes(query.trim().toLowerCase()))
+      .map(l => esc(l)).join('<br>') + '</div>';
+  }
+
+  function renderSidebar() {
+    sidebarEl.innerHTML = categories.map(c => {
+      const open = query.trim() ? 'open' : (c.id === activeCat ? 'open' : '');
+      const catActive = c.id === activeCat && !query.trim();
+      return '<div class="cat ' + open + '">'
+        + '<button class="cat-btn' + (catActive ? ' active' : '') + '" data-cat="' + esc(c.id) + '">' + esc(c.title) + '</button>'
+        + '<div class="pages">' + c.pages.map(p =>
+            '<button class="page-btn' + (p.id === activePage && c.id === activeCat ? ' active' : '') + '" data-cat="' + esc(c.id) + '" data-page="' + esc(p.id) + '">' + esc(p.title) + '</button>'
+          ).join('') + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderContent() {
+    // 搜索模式：全部分类命中视图
+    if (query.trim()) {
+      let total = 0;
+      const groups = [];
+      for (const c of categories) {
+        const hits = [];
+        for (const p of c.pages) {
+          for (let i = 0; i < p.blocks.length; i++) {
+            const b = p.blocks[i];
+            if (blockVisible(b)) { hits.push({ page: p, block: b }); total++; }
+          }
+        }
+        if (hits.length) groups.push({ c, hits });
+      }
+      if (!total) {
+        contentEl.innerHTML = '<div class="empty">没有找到相关内容，换个关键词试试</div>';
+        return;
+      }
+      contentEl.innerHTML = '<div style="font-size:13px;color:var(--dim);margin-bottom:14px">共找到 <b style="color:var(--accent2)">' + total + '</b> 条相关内容</div>'
+        + groups.map(g => '<div class="block" style="margin-bottom:20px"><div class="caption" style="font-size:13px;color:var(--accent2)">' + esc(g.c.title) + '（' + g.hits.length + ' 条）</div>'
+          + g.hits.map(h => '<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:600;margin-bottom:6px">' + esc(h.page.title) + '</div>' + renderBlock(h.block) + '</div>').join('')
+          + '</div>').join('');
+      return;
+    }
+    // 浏览模式
+    const cat = categories.find(c => c.id === activeCat) || categories[0];
+    if (!cat) { contentEl.innerHTML = '<div class="empty">暂无内容</div>'; return; }
+    const page = cat.pages.find(p => p.id === activePage) || cat.pages[0];
+    if (!page) { contentEl.innerHTML = '<div class="empty">暂无内容</div>'; return; }
+    activeCat = cat.id; activePage = page.id;
+    contentEl.innerHTML = '<div class="crumb">' + esc(cat.title) + '</div>'
+      + '<h2>' + esc(page.title) + '</h2>'
+      + (page.summary ? '<div class="summary">' + esc(page.summary) + '</div>' : '')
+      + page.blocks.map(renderBlock).join('');
+    renderSidebar();
+  }
+
+  function renderAll() { renderSidebar(); renderContent(); }
+
+  // ===== 事件 =====
+  sidebarEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.page) {
+      activeCat = btn.dataset.cat; activePage = btn.dataset.page; query = '';
+      searchEl.value = ''; clearBtn.style.display = 'none';
+    } else if (btn.dataset.cat) {
+      activeCat = btn.dataset.cat;
+      const cat = categories.find(c => c.id === activeCat);
+      activePage = cat ? cat.pages[0].id : '';
+    }
+    renderAll();
+  });
+  searchEl.addEventListener('input', () => {
+    query = searchEl.value;
+    clearBtn.style.display = query ? 'block' : 'none';
+    renderAll();
+  });
+  clearBtn.addEventListener('click', () => {
+    searchEl.value = ''; query = ''; clearBtn.style.display = 'none'; renderAll();
+  });
+
+  // ===== 启动 =====
+  (async () => {
+    await load();
+    if (categories.length) {
+      activeCat = categories[0].id;
+      activePage = categories[0].pages[0].id;
+    }
+    renderAll();
+  })();
+</script>
+</body>
+</html>

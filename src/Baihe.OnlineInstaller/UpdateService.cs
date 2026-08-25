@@ -30,7 +30,7 @@ namespace Baihe.OnlineInstaller
         private static readonly HttpClient Http = CreateClient();
 
         private const int ApiTimeoutSec = 8;
-        private const int ProbeBytes = 512 * 1024; // 测速读取量
+        private const int ProbeBytes = 1024 * 1024; // 测速读取量（1MB，更精准）
 
         /// <summary>GitHub API 源（直连失败自动切镜像）</summary>
         private static readonly string[] ApiUrls =
@@ -48,7 +48,7 @@ namespace Baihe.OnlineInstaller
             $"https://ghproxy.net/https://raw.githubusercontent.com/{Program.RepoOwner}/{Program.RepoName}/main/mirrors.json",
         };
 
-        /// <summary>内置兜底镜像（与仓库 mirrors.json 首段一致）</summary>
+        /// <summary>内置兜底镜像（与仓库 mirrors.json 同步，mirrors.json 拉取失败时使用）</summary>
         private static readonly string[] BuiltinMirrors =
         {
             "https://ghfast.top/",
@@ -56,6 +56,13 @@ namespace Baihe.OnlineInstaller
             "https://gh-proxy.com/",
             "https://ghproxy.link/",
             "https://gh.ddlc.top/",
+            "https://ghproxy.cn/",
+            "https://gh.llkk.cc/",
+            "https://ghproxy.cxkpro.top/",
+            "https://gh.xxooo.cf/",
+            "https://github.limoruirui.com/",
+            "https://ghproxy.monkeyray.net/",
+            "https://gh.xx9527.cn/",
         };
 
         private static HttpClient CreateClient()
@@ -166,7 +173,8 @@ namespace Baihe.OnlineInstaller
             return info;
         }
 
-        /// <summary>测速 — Range 请求读前 512KB 计时（部分镜像不支持 Range 则全量读前段）</summary>
+        /// <summary>测速 — Range 请求读前 1MB 计时（部分镜像不支持 Range 则全量读前段）；
+        /// 计时从收到第一个数据字节后开始，排除连接/握手耗时，测纯吞吐更精准</summary>
         private static async Task<double> MeasureSpeedAsync(string url)
         {
             try
@@ -175,14 +183,20 @@ namespace Baihe.OnlineInstaller
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 req.Headers.Range = new RangeHeaderValue(0, ProbeBytes - 1);
 
-                var sw = System.Diagnostics.Stopwatch.StartNew();
                 using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                 if (!resp.IsSuccessStatusCode)
                     return 0;
 
                 using var stream = await resp.Content.ReadAsStreamAsync();
                 var buffer = new byte[64 * 1024];
-                long total = 0;
+
+                // 先读第一段（跳过连接/握手耗时），再从数据流开始计时
+                var first = await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token);
+                if (first <= 0)
+                    return 0;
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                long total = first;
                 while (total < ProbeBytes)
                 {
                     var n = await stream.ReadAsync(buffer, 0, Math.Min(buffer.Length, (int)(ProbeBytes - total)), cts.Token);

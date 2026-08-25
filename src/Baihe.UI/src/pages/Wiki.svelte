@@ -1,23 +1,44 @@
 <!--
   功能描述: 维基页面 — 服务器玩家指南（分级分类 + 全文搜索）
-  技术实现: 内容来自 lib/wiki/*.ts（按章节拆分）；左侧分级导航（分类→页面），右侧内容区；搜索时切换为命中结果视图并高亮
-  注意事项: 内容为启动器内置数据，无 IPC 依赖
+  技术实现: 内容优先从后端 wiki.get（仓库 wiki.json，可远程编辑）拉取，失败回退内置 lib/wiki/*.ts；
+           左侧分级导航（分类→页面），右侧内容区；搜索时切换为命中结果视图并高亮
+  注意事项: 浏览器预览环境无 IPC 时自动回退内置内容
 -->
 <script lang="ts">
+  import { onMount } from 'svelte'
   import Icon from '../lib/Icon.svelte'
   import { wikiCategories, searchWiki, type WikiSearchHit } from '../lib/wiki'
   import type { WikiCategory, WikiPage, WikiBlock } from '../lib/wiki/types'
+  import { ipc } from '../lib/ipc'
+
+  /** 维基分类数据 — 默认内置，远程 wiki.get 成功后替换（可直接从 GitHub 编辑 wiki.json） */
+  let categories = $state<WikiCategory[]>(wikiCategories)
 
   /** 当前选中分类 */
-  let activeCategoryId = $state(wikiCategories[0]?.id ?? '')
+  let activeCategoryId = $state(categories[0]?.id ?? '')
   /** 当前选中页面 */
   let activePageId = $state('')
   /** 搜索关键词 */
   let query = $state('')
 
+  // 拉取远程维基数据（wiki.json）— 成功且非空则使用远程内容
+  onMount(() => {
+    ipc<WikiCategory[]>('wiki.get')
+      .then((remote) => {
+        if (Array.isArray(remote) && remote.length > 0) {
+          categories = remote
+          activeCategoryId = remote[0]?.id ?? ''
+          activePageId = remote[0]?.pages[0]?.id ?? ''
+        }
+      })
+      .catch(() => {
+        // 拉取失败（或浏览器环境无 IPC）→ 保持内置内容
+      })
+  })
+
   /** 当前分类（找不到回退第一个） */
   const activeCategory = $derived(
-    wikiCategories.find((c) => c.id === activeCategoryId) ?? wikiCategories[0],
+    categories.find((c) => c.id === activeCategoryId) ?? categories[0],
   )
 
   /** 当前页面（找不到回退第一个） */
@@ -31,7 +52,7 @@
   /** 搜索结果 — 按分类分组 */
   const groupedHits = $derived.by((): { category: WikiCategory; hits: WikiSearchHit[] }[] => {
     const map = new Map<string, { category: WikiCategory; hits: WikiSearchHit[] }>()
-    for (const hit of searchWiki(query)) {
+    for (const hit of searchWiki(query, categories)) {
       if (!map.has(hit.category.id)) {
         map.set(hit.category.id, { category: hit.category, hits: [] })
       }
@@ -41,12 +62,12 @@
   })
 
   /** 搜索命中总数 */
-  const hitCount = $derived(searchWiki(query).length)
+  const hitCount = $derived(searchWiki(query, categories).length)
 
   /** 切换分类 — 自动选中该分类第一个页面 */
   function selectCategory(id: string): void {
     activeCategoryId = id
-    const cat = wikiCategories.find((c) => c.id === id)
+    const cat = categories.find((c) => c.id === id)
     activePageId = cat?.pages[0]?.id ?? ''
   }
 
@@ -98,18 +119,19 @@
       <h1 class="text-[26px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">玩家指南</h1>
       <p class="mt-1 text-sm text-[var(--muted-foreground)]">白鹤服务器 · 普通玩家查询手册（指令 / 玩法 / 常见问题）</p>
     </div>
-    <div class="flex h-10 w-96 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-3 transition-colors focus-within:border-[var(--ring)]">
-      <Icon name="search" size={16} class="shrink-0 text-[var(--icon-muted)]" />
+    <!-- 搜索框（绝对定位布局：icon/清除按钮固定位置，input 全宽+内边距，避免文字错位/溢出） -->
+    <div class="relative h-10 w-96 shrink-0">
+      <Icon name="search" size={16} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--icon-muted)]" />
       <input
         type="text"
         bind:value={query}
         placeholder="搜索指令 / 关键词，如 home、资源包…"
-        class="h-full min-w-0 flex-1 border-0 bg-transparent py-0 text-sm leading-normal text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+        class="h-full w-full rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] pl-9 pr-16 text-sm leading-normal text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)]"
       />
       {#if searching}
         <button
           type="button"
-          class="shrink-0 text-[12px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-[12px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           onclick={() => (query = '')}
         >
           清除
@@ -201,7 +223,7 @@
       <!-- 左侧: 分级导航（分类 → 页面） -->
       <nav class="w-[200px] shrink-0 pr-4" aria-label="指南分类">
         <div class="flex flex-col gap-4">
-          {#each wikiCategories as cat (cat.id)}
+          {#each categories as cat (cat.id)}
             <div>
               <button
                 type="button"

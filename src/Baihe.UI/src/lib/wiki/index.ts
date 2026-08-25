@@ -46,12 +46,12 @@ export interface WikiSearchHit {
 
 import type { WikiPage } from './types'
 
-export function searchWiki(keyword: string): WikiSearchHit[] {
+export function searchWiki(keyword: string, cats: WikiCategory[] = wikiCategories): WikiSearchHit[] {
   const kw = keyword.trim().toLowerCase()
   if (!kw) return []
 
   const hits: WikiSearchHit[] = []
-  for (const category of wikiCategories) {
+  for (const category of cats) {
     for (const page of category.pages) {
       for (let i = 0; i < page.blocks.length; i++) {
         const block = page.blocks[i]

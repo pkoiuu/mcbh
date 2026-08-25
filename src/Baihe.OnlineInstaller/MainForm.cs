@@ -216,7 +216,7 @@ namespace Baihe.OnlineInstaller
                 _downloading = true;
                 _cts = new CancellationTokenSource();
 
-                using (var dl = new Downloader(info.BestUrl, _tempExePath, threads: 16))
+                using (var dl = new Downloader(info.BestUrl, _tempExePath, threads: 8))
                 {
                     var ok = await dl.DownloadAsync(
                         (down, total, speed) =>

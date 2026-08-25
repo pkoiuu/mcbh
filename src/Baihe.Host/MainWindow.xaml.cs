@@ -2,6 +2,7 @@
 // 负责将前端 WebView2 与后端 IpcRouter 连接起来
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
@@ -130,6 +131,13 @@ public partial class MainWindow : Window
         _ipcRouter.Register("news.list", async _ =>
         {
             return await NewsService.GetNewsAsync();
+        });
+
+        // 玩家指南维基 — 拉取仓库 wiki.json（可远程编辑，失败前端回退内置）
+        _ipcRouter.Register("wiki.get", async _ =>
+        {
+            var categories = await WikiService.GetWikiAsync();
+            return categories ?? new List<object>();
         });
 
         // ===== Stage 2: 启动核心命令 =====
