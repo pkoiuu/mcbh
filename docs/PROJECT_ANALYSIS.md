@@ -3,7 +3,7 @@
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
 > 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
 > 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
-> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9，新增 光影管理/最新动态/单实例 等）→ **v1.1.10**（2026-08-25 发布：玩家指南维基 + 默认允许服务器资源包 + 服务器列表选择）→ **v1.1.11**（2026-08-25 发布：修复 更新横幅缓存/维基复制/搜索框错位/最新动态同步/资源包预热 + 新增在线版安装器 src/Baihe.OnlineInstaller，40KB net48 WinForms，多线程下载 + 镜像加速择优 + 云构建）。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（玩家指南维基 + 默认允许资源包 + 服务器列表选择）→ **v1.1.11**（修复 更新横幅/维基复制/搜索框/最新动态/资源包预热 + 在线版安装器 40KB）→ **v1.1.12**（修复 在线安装器/主程序更新检查误选 BaiheOnlineSetup，assets 匹配排除在线安装器 + --selftest 自检）。
 
 ---
 
@@ -489,6 +489,7 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 19. **单实例 Mutex 名称硬编码**（App.xaml.cs `BaiheServerLauncher_SingleInstance_Mutex_8F2B7A3C`）与 Inno AppId 前缀一致；改名/换 AppId 时两者要同步。
 20. **光影只认 `.minecraft/mods`（全局）**：ModService 明确注释版本专属 mods 目录不被游戏加载（v1.1.2 修复）；ShadersPanel 提示需启用 Iris mod 且重启游戏生效。
 21. **工具页 Tab 数据按需加载**（v1.1.9）：mods/screenshots 首次进入才拉取且带 `loaded` 缓存标志（防切 tab 卡顿），刷新按钮强制重拉——新增 Tab 时照此模式。
+22. **Release 多 .exe 资产的匹配坑（v1.1.12）**：v1.1.11 起 release 同时含 `BaiheOnlineSetup_vX.Y.Z.exe`（在线安装器）与 `BaiheServer_Setup_vX.Y.Z.exe`（完整安装包），GitHub API assets 数组按名称排序时**在线安装器排在前面**，两处 `.exe` 匹配（主程序 UpdateService 与在线安装器 UpdateService）若取第一个会**下载到在线安装器**——必须在匹配时排除 `OnlineSetup`/`BaiheOnline`，只匹配完整安装包。在线安装器支持 `--selftest` 无界面自检（写 %TEMP%\baihe_selftest.log，退出码 0/1）。
 
 ---
 
