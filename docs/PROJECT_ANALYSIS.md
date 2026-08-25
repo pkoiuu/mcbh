@@ -3,7 +3,7 @@
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
 > 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
 > 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
-> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（玩家指南维基 + 默认允许资源包 + 服务器列表选择）→ **v1.1.11**（修复 更新横幅/维基复制/搜索框/最新动态/资源包预热 + 在线版安装器 40KB）→ **v1.1.12**（修复 在线安装器/主程序更新检查误选 BaiheOnlineSetup，assets 匹配排除在线安装器 + --selftest 自检）。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（玩家指南维基 + 默认允许资源包 + 服务器列表选择）→ **v1.1.11**（修复 + 在线版安装器 40KB）→ **v1.1.12**（修复 assets 误选 + --selftest）→ **v1.1.13**（在线安装器 mac 美化/16 线程/防堆叠/防卡顿 + 构建并行化 + Inno 压缩提速 + 移除服务器选择框 + 窗口出现才显示运行中）。
 
 ---
 
@@ -147,7 +147,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | Sidebar.svelte | 240px 毛玻璃侧边栏：用户区 + 导航 + 版本号；监听 router 变化重载账户 | `auth.current`、`app.getVersion` | — |
 | WeChatDialog.svelte | 首次启动微信名收集弹窗（IPC 失败也弹） | `wechat.set` | — |
 | Icon.svelte | 图标组件（见 4.4） | — | — |
-| Home.svelte | 启动主页：实例卡片 + 启动按钮 + 服务器选择 + 快捷工具 + 新闻列表 + 服务器状态 + 更新横幅 | `instance.current`、`auth.hasAccount`、`update.check`、`server.status`、`launch.start`、`news.list`、`open.url`、`servers.list` | `launch.state`、`launch.started`、`launch.exited` |
+| Home.svelte | 启动主页：实例卡片 + 启动按钮 + 快捷工具 + 新闻列表 + 服务器状态 + 更新横幅（**v1.1.13 已移除服务器选择下拉**） | `instance.current`、`auth.hasAccount`、`update.check`、`server.status`、`launch.start`、`news.list`、`open.url` | `launch.state`、`launch.started`、`launch.windowShown`、`launch.exited` |
 | Wiki.svelte | 玩家指南维基（本次新增）：分级导航 + 全文搜索 + 高亮 | —（内容为前端内置数据 lib/wiki/*.ts） | — |
 | Download.svelte | 版本下载 / Fabric 安装（开发者入口） | `version.list`、`instance.list`、`download.start`、`fabric.install` | `download.progress/complete/error`、`fabric.progress/complete/error` |
 | Settings.svelte | 账户/游戏/外观/关于/开发者 五分类设置（开发者需密码 `111125hj`） | `auth.current`、`app.getVersion`、`system.memory`、`update.check({force:true})`、`java.bundled`、`java.detect`、`settings.get`、`settings.set`、`auth.offline`（改名）、`open.url` | — |
@@ -300,7 +300,8 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | 事件 | 数据 | 触发场景 |
 |---|---|---|
 | launch.state | {state,message} | 启动各阶段（preparing/launching/error） |
-| launch.started | {processId} | 游戏进程已启动 |
+| launch.started | {processId} | 游戏进程已启动（窗口未出现，前端保持"启动中..."） |
+| launch.windowShown | {processId} | **游戏窗口已出现（v1.1.13+）**——前端此时才显示"运行中" |
 | launch.exited | {exitCode,abnormal,error} | 游戏退出（stderr 内容） |
 | download.progress | {phase,currentFile,completedFiles,totalFiles,downloadedBytes,totalBytes,percent} | 下载进度 |
 | download.complete | {success} | 下载完成 |
