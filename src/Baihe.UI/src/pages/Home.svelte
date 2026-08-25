@@ -37,15 +37,6 @@
     port: number
   }
 
-  /** 服务器列表条目（QuickPlay 目标选择） */
-  interface ServerEntry {
-    id: string
-    name: string
-    address: string
-    port: number
-    isDefault?: boolean
-  }
-
   /** 启动推送事件数据 */
   interface LaunchStateEvent {
     state: string
@@ -89,25 +80,6 @@
   // 服务器状态
   let serverStatus = $state<ServerStatus | null>(null)
   let serverChecking = $state(false)
-
-  // 服务器列表（QuickPlay 目标选择）
-  let servers = $state<ServerEntry[]>([])
-  let selectedServerId = $state('')
-
-  /** 当前选中的服务器（无选择时回退列表第一项） */
-  const selectedServer = $derived(servers.find((s) => s.id === selectedServerId) ?? servers[0])
-
-  /** 加载服务器列表 — 默认选中第一项（白鹤服务器） */
-  async function loadServers(): Promise<void> {
-    try {
-      servers = await ipc<ServerEntry[]>('servers.list')
-      if (servers.length > 0 && !selectedServerId) {
-        selectedServerId = servers[0].id
-      }
-    } catch {
-      servers = []
-    }
-  }
 
   // 账户状态 — 参照 PCL CE McLaunchPrecheck，启动前必须检查用户档案
   let hasAccount = $state(false)
@@ -198,24 +170,16 @@
     }
   }
 
-  /** 检查服务器状态 — 按当前选择的服务器查询 */
+  /** 检查服务器状态（默认服务器） */
   async function checkServerStatus(): Promise<void> {
     serverChecking = true
     try {
-      serverStatus = await ipc<ServerStatus>(
-        'server.status',
-        selectedServer ? { serverAddress: selectedServer.address, serverPort: selectedServer.port } : undefined,
-      )
+      serverStatus = await ipc<ServerStatus>('server.status')
     } catch {
       serverStatus = null
     } finally {
       serverChecking = false
     }
-  }
-
-  /** 切换目标服务器 — 重新检查该服务器状态 */
-  function onServerChange(): void {
-    checkServerStatus()
   }
 
   /** 处理启动按钮点击 — 调用 IPC 启动游戏 */
@@ -235,14 +199,12 @@
       const result = await ipc<LaunchResult>('launch.start', {
         instanceId: instance.id,
         quickPlay: true,
-        serverAddress: selectedServer?.address,
-        serverPort: selectedServer?.port,
       })
       if (!result.success) {
         launchError = result.error || '启动失败'
         isLaunching = false
       }
-      // 成功时等待 launch.started 推送事件来更新状态
+      // 成功时等待 launch.started / launch.windowShown 推送事件来更新状态
     } catch (e: unknown) {
       launchError = e instanceof Error ? e.message : '启动失败'
       isLaunching = false
@@ -262,9 +224,15 @@
       }
     })
 
-    // 游戏进程已启动
+    // 游戏进程已启动（窗口尚未出现，保持"启动中..."）
     const offStarted = on('launch.started', (data) => {
       const evt = data as LaunchStartedEvent
+      launchMessage = '游戏进程已启动，正在加载窗口...'
+      // 窗口出现（launch.windowShown）后才置为"运行中"
+    })
+
+    // 游戏窗口已出现 — 此时才显示"运行中"
+    const offWindowShown = on('launch.windowShown', (data) => {
       isLaunching = false
       gameRunning = true
       launchSuccess = true
@@ -301,6 +269,7 @@
     return () => {
       offState()
       offStarted()
+      offWindowShown()
       offExited()
       clearInterval(statusInterval)
     }
@@ -312,7 +281,6 @@
   checkAccount()
   checkForUpdate()
   loadNews()
-  loadServers()
 </script>
 
 <div class="min-h-0 flex-1 overflow-y-auto bg-[var(--background-100)] p-8">
@@ -433,7 +401,7 @@
               <div class="mt-2 text-[12px] font-medium text-green-500">游戏已启动，正在连接白鹤服务器</div>
             {/if}
           </div>
-          <!-- 右侧: 启动按钮 + 服务器选择 -->
+          <!-- 右侧: 启动按钮 -->
           <div class="flex shrink-0 flex-col items-end gap-1.5">
             <button
               type="button"
@@ -444,19 +412,6 @@
               <Icon name="circle-play" size={18} />
               <span>{gameRunning ? '运行中' : isLaunching ? '启动中...' : launchSuccess ? '已启动' : hasAccount ? '启动游戏' : '请先登录账户'}</span>
             </button>
-            {#if servers.length > 0}
-              <select
-                bind:value={selectedServerId}
-                onchange={onServerChange}
-                disabled={isLaunching || gameRunning}
-                class="h-8 w-full max-w-[220px] cursor-pointer rounded-[0.5rem] border border-[var(--border)] bg-[var(--card)] px-2 text-[12px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="选择目标服务器"
-              >
-                {#each servers as s (s.id)}
-                  <option value={s.id}>{s.name}（{s.address}:{s.port}）</option>
-                {/each}
-              </select>
-            {/if}
             <span class="text-[12px] text-[var(--muted-foreground)]">
               {#if !instance.isInstalled}
                 版本未安装
@@ -465,7 +420,7 @@
               {:else if gameRunning}
                 游戏正在运行
               {:else}
-                QuickPlay 直连{selectedServer ? ` ${selectedServer.name}` : '服务器'}
+                QuickPlay 直连白鹤服务器
               {/if}
             </span>
           </div>

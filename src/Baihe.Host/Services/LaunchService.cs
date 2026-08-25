@@ -230,6 +230,7 @@ public static class LaunchService
             _ = Task.Run(() => process.StandardOutput.ReadToEnd());
 
             // 异步修改游戏窗口标题为"白鹤服务器" — 等 Minecraft 窗口创建后通过 Win32 API 修改
+            // 同时推送 launch.windowShown：前端在收到该事件前保持"启动中..."，窗口出现才显示"运行中"
             _ = Task.Run(async () =>
             {
                 try
@@ -245,6 +246,7 @@ public static class LaunchService
                         if (handle != IntPtr.Zero)
                         {
                             SetWindowText(handle, "白鹤服务器");
+                            IpcRouter.PushEvent("launch.windowShown", new { processId = process.Id });
                             return;
                         }
                     }

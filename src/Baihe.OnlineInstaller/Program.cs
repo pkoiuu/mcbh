@@ -13,7 +13,7 @@ namespace Baihe.OnlineInstaller
     internal static class Program
     {
         /// <summary>当前版本（与主程序同步）</summary>
-        public const string AppVersion = "1.1.12";
+        public const string AppVersion = "1.1.13";
 
         /// <summary>GitHub 仓库</summary>
         public const string RepoOwner = "pkoiuu";

@@ -63,9 +63,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      # ===== 并行准备阶段: 前端 + JRE + WebView2 + .minecraft + NuGet restore =====
-      # 五个独立操作同时执行，原串行约 215s，并行后约 120s (节省 ~95s)
-      - name: Parallel preparation (frontend + JRE + WebView2 + .minecraft + restore)
+      # ===== 并行准备阶段: 前端 + JRE + WebView2 + .minecraft + NuGet restore + 在线安装器 =====
+      # 六个独立操作同时执行，原串行约 215s，并行后约 120s (节省 ~95s)
+      - name: Parallel preparation (frontend + JRE + WebView2 + .minecraft + restore + online installer)
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,7 +111,14 @@ jobs:
             dotnet restore src/Baihe.Host/Baihe.Host.csproj -p:PublishReadyToRun=true 2>&1
           } -ArgumentList $PWD
 
-          # 5. 前端构建 (前台, 约 15s)
+          # 5. 在线安装器构建 (后台, 约 15-30s, net48 独立项目) — 并入并行阶段省串行时间
+          $onlineJob = Start-Job -ScriptBlock {
+            param($workDir)
+            Set-Location $workDir
+            dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo 2>&1
+          } -ArgumentList $PWD
+
+          # 6. 前端构建 (前台, 约 15s)
           Write-Host '--- Building frontend ---'
           Set-Location src/Baihe.UI
           pnpm install --frozen-lockfile --prefer-offline
@@ -120,7 +127,7 @@ jobs:
 
           # 等待所有后台任务
           Write-Host '--- Waiting for background jobs ---'
-          $jobs = @($jreJob, $wv2Job, $mcJob, $restoreJob)
+          $jobs = @($jreJob, $wv2Job, $mcJob, $restoreJob, $onlineJob)
           Wait-Job -Job $jobs
 
           # 检查结果并输出日志
@@ -130,6 +137,7 @@ jobs:
               $wv2Job.Id      { 'WebView2 download' }
               $mcJob.Id       { '.minecraft download' }
               $restoreJob.Id  { 'NuGet restore' }
+              $onlineJob.Id   { 'Online installer build' }
               default         { 'Unknown' }
             }
             Write-Host "--- $name output ---"
@@ -189,11 +197,10 @@ jobs:
           Write-Host "Building installer version: $version"
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version installer\baihe_installer.iss
 
-      # ===== 编译在线版安装器（net48 WinForms，体积仅数百 KB）=====
-      - name: Build online installer
+      # ===== 在线安装器命名（已在并行阶段构建到 dist\online）=====
+      - name: Name online installer artifact
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
-          dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo
           Copy-Item dist\online\BaiheOnlineSetup.exe "dist\BaiheOnlineSetup_v$version.exe" -Force
           Get-ChildItem dist\BaiheOnlineSetup_v$version.exe | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,1)}}
 

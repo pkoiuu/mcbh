@@ -7,7 +7,7 @@
 ; ============================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.12"
+  #define MyAppVersion "1.1.13"
 #endif
 
 [Setup]
@@ -43,8 +43,8 @@ UninstallDisplayName=白鹤服务器启动器
 UninstallDisplayIcon={app}\Baihe.exe
 CreateUninstallRegKey=yes
 
-; 压缩
-Compression=lzma2/ultra64
+; 压缩 — lzma2/max 平衡构建速度与安装速度（ultra64 构建/解压过慢，max 明显更快且体积仅略增）
+Compression=lzma2/max
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
