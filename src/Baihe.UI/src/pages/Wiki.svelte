@@ -98,7 +98,7 @@
       <h1 class="text-[26px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">玩家指南</h1>
       <p class="mt-1 text-sm text-[var(--muted-foreground)]">白鹤服务器 · 普通玩家查询手册（指令 / 玩法 / 常见问题）</p>
     </div>
-    <div class="flex h-10 w-72 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-3 transition-colors focus-within:border-[var(--ring)]">
+    <div class="flex h-10 w-96 items-center gap-2 rounded-[0.75rem] border border-[var(--border)] bg-[var(--card)] px-3 transition-colors focus-within:border-[var(--ring)]">
       <Icon name="search" size={16} class="shrink-0 text-[var(--icon-muted)]" />
       <input
         type="text"
