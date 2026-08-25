@@ -13,7 +13,7 @@ namespace Baihe.OnlineInstaller
     internal static class Program
     {
         /// <summary>当前版本（与主程序同步）</summary>
-        public const string AppVersion = "1.1.16";
+        public const string AppVersion = "1.1.17";
 
         /// <summary>GitHub 仓库</summary>
         public const string RepoOwner = "pkoiuu";
@@ -66,12 +66,40 @@ namespace Baihe.OnlineInstaller
                     {
                         var best = await UpdateService.PickFastestAsync(info);
                         log.AppendLine($"best line      : {best.Source} ({best.SpeedMbps:0.0} MB/s)");
+                        log.AppendLine($"candidates     : {best.Candidates.Length} 条（含直链兜底）");
                         log.AppendLine($"best url       : {best.BestUrl}");
                     }
                     catch (Exception ex)
                     {
                         log.AppendLine($"line check     : 测速异常（不影响主结论）: {ex.Message}");
                     }
+                }
+
+                // 下载器超时保护实测 — 用两个不可达线路模拟"卡在连接下载服务器"，验证不会无限挂起
+                try
+                {
+                    log.AppendLine("stall test     : 开始（两个不可达线路，应快速失败而非挂 30 分钟）...");
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    using (var dl = new Downloader(
+                        new[] { "https://10.255.255.1/nope.exe", "https://192.0.2.1/nope.exe" },
+                        Path.Combine(Path.GetTempPath(), "baihe_stall_test.tmp"),
+                        threads: 8))
+                    {
+                        var result = await dl.DownloadAsync(
+                            (d, t, s) => { },
+                            s => { },
+                            System.Threading.CancellationToken.None);
+                        sw.Stop();
+                        log.AppendLine($"stall test     : 返回={result}，耗时 {sw.ElapsedMilliseconds / 1000}s（<60s 即证明超时保护生效）");
+                        if (sw.Elapsed.TotalSeconds < 60 && result == false)
+                            log.AppendLine("stall test     : PASS（超时保护正常，不会卡死）");
+                        else
+                            log.AppendLine("stall test     : FAIL（超时保护异常）");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log.AppendLine($"stall test     : 异常: {ex.Message}");
                 }
             }
             catch (Exception ex)

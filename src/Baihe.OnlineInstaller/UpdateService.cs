@@ -22,6 +22,8 @@ namespace Baihe.OnlineInstaller
         public string BestUrl = "";
         public string Source = "";
         public double SpeedMbps = 0;
+        /// <summary>按速度降序的全部候选下载 URL（下载器逐个尝试）</summary>
+        public string[] Candidates = new string[0];
     }
 
     /// <summary>版本检查与镜像择优服务</summary>
@@ -129,8 +131,9 @@ namespace Baihe.OnlineInstaller
         }
 
         /// <summary>
-        /// 选择最快下载线路 — 拉取镜像列表，对每个镜像前缀 + 真实 URL 并行测速（Range 512KB）
-        /// 全部失败回退 GitHub 直链；返回含 bestUrl/source/speedMbps 的副本
+        /// 选择最快下载线路 — 拉取镜像列表，对每个镜像前缀 + 真实 URL 并行测速（Range 1MB）
+        /// 返回含 bestUrl/source/speedMbps 的副本，并把全部候选按速度降序写入 Candidates
+        /// （下载器会按 Candidates 顺序逐个尝试，最快的失败自动切下一个）
         /// </summary>
         public static async Task<ReleaseInfo> PickFastestAsync(ReleaseInfo info)
         {
@@ -143,33 +146,29 @@ namespace Baihe.OnlineInstaller
             }
             candidates.Add(info.DownloadUrl); // GitHub 直链兜底
 
-            var bestUrl = info.DownloadUrl;
-            var bestSpeed = 0.0;
-            var bestSource = "GitHub 直链";
-
-            // 并行测速，取最快（早退：按完成顺序比较）
+            // 并行测速，收集全部结果
             var tasks = candidates.Select(async url =>
             {
                 var speed = await MeasureSpeedAsync(url);
                 return new { url, speed };
             }).ToList();
 
+            var results = new List<(string url, double speed)>();
             while (tasks.Count > 0)
             {
                 var done = await Task.WhenAny(tasks);
                 tasks.Remove(done);
                 var r = await done;
-                if (r.speed > bestSpeed)
-                {
-                    bestSpeed = r.speed;
-                    bestUrl = r.url;
-                    bestSource = ExtractHost(r.url);
-                }
+                results.Add((r.url, r.speed));
             }
 
-            info.BestUrl = bestUrl;
-            info.Source = bestSource;
-            info.SpeedMbps = bestSpeed;
+            // 按速度降序（最快的排最前；速度 0 的排最后，直链兜底永远在列表里）
+            results.Sort((a, b) => b.speed.CompareTo(a.speed));
+
+            info.Candidates = results.Select(r => r.url).ToArray();
+            info.BestUrl = results.Count > 0 ? results[0].url : info.DownloadUrl;
+            info.Source = ExtractHost(info.BestUrl);
+            info.SpeedMbps = results.Count > 0 ? results[0].speed : 0;
             return info;
         }
 

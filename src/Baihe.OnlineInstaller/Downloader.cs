@@ -1,7 +1,8 @@
-// 多线程下载器 — HTTP Range 分块并发下载
-// 思路: 先用 Range bytes=0-0 探测总大小；若服务器不支持 Range（返回 200）则回退单线程全量下载
-// 分块写入同一目标文件的不同偏移，进度按已写入字节数汇总
+// 多线程下载器 — HTTP Range 分块并发下载，支持多 URL 候选自动切换与超时保护
+// 思路: 对每个候选 URL 先用 Range bytes=0-0 探测总大小（15s 超时）；若服务器不支持 Range（返回 200）则回退单线程全量下载
+// 分块写入同一目标文件的不同偏移，进度按已写入字节数汇总；某块 30s 无数据或请求超时会抛出并切换到下一个候选 URL
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -10,48 +11,98 @@ using System.Threading.Tasks;
 
 namespace Baihe.OnlineInstaller
 {
-    /// <summary>多线程下载器（支持取消与进度回调）</summary>
+    /// <summary>多线程下载器（支持取消、进度回调、多候选 URL 自动切换）</summary>
     public class Downloader : IDisposable
     {
-        private readonly string _url;
+        private readonly string[] _urls;
         private readonly string _destPath;
         private readonly int _threads;
-        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        private readonly HttpClient _http;
+
+        /// <summary>探测超时（毫秒）</summary>
+        private const int ProbeTimeoutMs = 15000;
+
+        /// <summary>单块读取无数据超时（毫秒）</summary>
+        private const int ReadStallTimeoutMs = 30000;
 
         private long _downloaded;
         private int _completedChunks;
         private int _lastTick;
         private long _lastBytes;
         private Action<long, long, double> _onProgress;
+        private string _currentUrl = "";
 
         /// <summary>分块完成数（用于进度文案）</summary>
         public int CompletedChunks => _completedChunks;
 
-        public Downloader(string url, string destPath, int threads = 8)
+        /// <summary>当前使用的 URL（诊断用）</summary>
+        public string CurrentUrl => _currentUrl;
+
+        /// <summary>
+        /// 构造下载器
+        /// </summary>
+        /// <param name="urls">候选 URL 列表（按优先级排序，逐个尝试直到成功）</param>
+        /// <param name="destPath">目标文件路径</param>
+        /// <param name="threads">下载线程数</param>
+        public Downloader(string[] urls, string destPath, int threads = 8)
         {
-            _url = url;
+            _urls = urls.Length > 0 ? urls : new[] { "" };
             _destPath = destPath;
             _threads = Math.Max(1, Math.Min(threads, 16));
+            // 单请求超时 5 分钟（响应头到达前的总时限）；流读取另有 stall 超时保护
+            _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         }
 
         /// <summary>
-        /// 开始下载。onProgress(long downloaded, long total, double speedMBps) 高频回调；
-        /// 返回 true=成功（totalBytes 为总大小，可能为 -1 表示未知）
+        /// 开始下载 — 依次尝试每个候选 URL，全部失败返回 false。
+        /// onProgress(long downloaded, long total, double speedMBps) 高频回调
         /// </summary>
         public async Task<bool> DownloadAsync(
             Action<long, long, double> onProgress,
             Action<string> onStatus,
             CancellationToken token)
         {
-            _downloaded = 0;
-            _completedChunks = 0;
             _onProgress = onProgress;
-            _lastTick = Environment.TickCount;
-            _lastBytes = 0;
 
-            // 1. 探测总大小与 Range 支持
+            foreach (var url in _urls)
+            {
+                if (string.IsNullOrEmpty(url))
+                    continue;
+                if (token.IsCancellationRequested)
+                    return false;
+
+                _currentUrl = url;
+                _downloaded = 0;
+                _completedChunks = 0;
+                _lastTick = Environment.TickCount;
+                _lastBytes = 0;
+
+                try
+                {
+                    if (await TryDownloadFromAsync(url, onStatus, token).ConfigureAwait(false))
+                        return true;
+                    // 该 URL 失败，尝试下一个
+                    onStatus?.Invoke("当前线路不可用，正在切换备用线路...");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return false; // 用户取消
+                }
+                catch
+                {
+                    onStatus?.Invoke("当前线路异常，正在切换备用线路...");
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>从单个 URL 完整下载（探测 → 分块/单线程 → 校验）</summary>
+        private async Task<bool> TryDownloadFromAsync(string url, Action<string> onStatus, CancellationToken token)
+        {
+            // 1. 探测总大小与 Range 支持（15s 超时）
             onStatus?.Invoke("正在连接下载服务器...");
-            var (total, rangeSupported) = await ProbeAsync(token);
+            var (total, rangeSupported) = await ProbeAsync(url, token);
             if (total <= 0)
                 return false;
 
@@ -62,7 +113,6 @@ namespace Baihe.OnlineInstaller
             // 2. 按支持情况选择下载方式
             if (rangeSupported && total > 1 && _threads > 1)
             {
-                // 多线程分块
                 var chunkSize = (long)Math.Ceiling((double)total / _threads);
                 var tasks = new Task[_threads];
                 for (var i = 0; i < _threads; i++)
@@ -74,14 +124,13 @@ namespace Baihe.OnlineInstaller
                         tasks[i] = Task.CompletedTask;
                         continue;
                     }
-                    tasks[i] = DownloadChunkAsync(start, end, token);
+                    tasks[i] = DownloadChunkAsync(url, start, end, token);
                 }
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             else
             {
-                // 单线程全量
-                await DownloadChunkAsync(0, total - 1, token, isFull: true).ConfigureAwait(false);
+                await DownloadChunkAsync(url, 0, total - 1, token, isFull: true).ConfigureAwait(false);
             }
 
             token.ThrowIfCancellationRequested();
@@ -91,11 +140,9 @@ namespace Baihe.OnlineInstaller
             if (total > 0 && fi.Exists && fi.Length != total)
                 return false;
 
-            onProgress?.Invoke(total, total, 0);
+            _onProgress?.Invoke(total, total, 0);
             return true;
         }
-
-        /// <summary>累计进度并节流上报（200ms 一次）</summary>
         private void Report(long delta)
         {
             Interlocked.Add(ref _downloaded, delta);
@@ -113,14 +160,17 @@ namespace Baihe.OnlineInstaller
 
         private long _total; // 探测到的总大小（Report 上报用）
 
-        /// <summary>Range 探测：返回 (总大小, 是否支持 Range)。不支持时 total 为完整大小</summary>
-        private async Task<(long total, bool range)> ProbeAsync(CancellationToken token)
+        /// <summary>Range 探测（15s 超时）：返回 (总大小, 是否支持 Range)。失败抛异常由上层切换线路</summary>
+        private async Task<(long total, bool range)> ProbeAsync(string url, CancellationToken token)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, _url);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            cts.CancelAfter(ProbeTimeoutMs);
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Range = new RangeHeaderValue(0, 0);
-            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                return (-1, false);
+                throw new HttpRequestException($"HTTP {(int)resp.StatusCode}");
 
             // 支持 Range: 206 + Content-Range
             var contentRange = resp.Content.Headers.ContentRange;
@@ -135,10 +185,10 @@ namespace Baihe.OnlineInstaller
             return (_total, false);
         }
 
-        /// <summary>下载一个分块到文件偏移（isFull=true 时从 0 写起，覆盖写）</summary>
-        private async Task DownloadChunkAsync(long start, long end, CancellationToken token, bool isFull = false)
+        /// <summary>下载一个分块到文件偏移（isFull=true 时从 0 写起，覆盖写）；30s 无数据自动中断</summary>
+        private async Task DownloadChunkAsync(string url, long start, long end, CancellationToken token, bool isFull = false)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, _url);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
             if (!isFull)
                 req.Headers.Range = new RangeHeaderValue(start, end);
 
@@ -157,7 +207,7 @@ namespace Baihe.OnlineInstaller
                 while (true)
                 {
                     token.ThrowIfCancellationRequested();
-                    var n = await stream.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false);
+                    var n = await ReadWithStallTimeoutAsync(stream, buffer, token).ConfigureAwait(false);
                     if (n <= 0)
                         break;
                     fs.Write(buffer, 0, n);
@@ -167,6 +217,21 @@ namespace Baihe.OnlineInstaller
             }
 
             Interlocked.Increment(ref _completedChunks);
+        }
+
+        /// <summary>带 30s 无数据超时的流读取（防止镜像挂起导致无限等待）</summary>
+        private static async Task<int> ReadWithStallTimeoutAsync(System.IO.Stream stream, byte[] buffer, CancellationToken token)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            cts.CancelAfter(ReadStallTimeoutMs);
+            try
+            {
+                return await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException("读取数据超时（线路可能已中断）");
+            }
         }
 
         public void Dispose()

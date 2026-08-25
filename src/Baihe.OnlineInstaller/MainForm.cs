@@ -29,7 +29,6 @@ namespace Baihe.OnlineInstaller
         private string _statusText = "正在初始化...";
         private double _progress;      // 0..1
         private string _speedText = "";
-        private bool _downloading;
         private CancellationTokenSource _cts;
         private string _tempExePath = "";
         private ReleaseInfo _releaseInfo;
@@ -54,7 +53,7 @@ namespace Baihe.OnlineInstaller
             Size = new Size(WinW, WinH);
             BackColor = BgBottom;
             DoubleBuffered = true;
-            Font = new Font("Segoe UI", 9F);
+            Font = new Font("Microsoft YaHei UI", 9F);
         }
 
         protected override void OnLoad(EventArgs e)
@@ -74,7 +73,7 @@ namespace Baihe.OnlineInstaller
             _lblTitle = new Label
             {
                 Text = "白鹤服务器 · 在线安装",
-                Font = new Font("Segoe UI", 15F, FontStyle.Bold),
+                Font = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold),
                 ForeColor = TextMain,
                 BackColor = Color.Transparent,
                 AutoSize = true,
@@ -83,7 +82,7 @@ namespace Baihe.OnlineInstaller
             _lblSubtitle = new Label
             {
                 Text = "轻量安装器 · 自动选择最快线路 · 多线程下载",
-                Font = new Font("Segoe UI", 9F),
+                Font = new Font("Microsoft YaHei UI", 9F),
                 ForeColor = TextDim,
                 BackColor = Color.Transparent,
                 AutoSize = true,
@@ -94,7 +93,7 @@ namespace Baihe.OnlineInstaller
             _lblStatus = new Label
             {
                 Text = _statusText,
-                Font = new Font("Segoe UI", 10F),
+                Font = new Font("Microsoft YaHei UI", 10F),
                 ForeColor = TextMain,
                 BackColor = Color.Transparent,
                 AutoSize = false,
@@ -105,7 +104,7 @@ namespace Baihe.OnlineInstaller
             _lblInfo = new Label
             {
                 Text = "",
-                Font = new Font("Segoe UI", 8.5F),
+                Font = new Font("Microsoft YaHei UI", 8.5F),
                 ForeColor = TextDim,
                 BackColor = Color.Transparent,
                 AutoSize = false,
@@ -126,7 +125,7 @@ namespace Baihe.OnlineInstaller
             _btnAction = new Button
             {
                 Text = "取消",
-                Font = new Font("Segoe UI", 9.5F),
+                Font = new Font("Microsoft YaHei UI", 9.5F),
                 ForeColor = TextMain,
                 BackColor = CardBg,
                 FlatStyle = FlatStyle.Flat,
@@ -142,7 +141,7 @@ namespace Baihe.OnlineInstaller
             _btnClose = new Button
             {
                 Text = "✕",
-                Font = new Font("Segoe UI", 9F),
+                Font = new Font("Microsoft YaHei UI", 9F),
                 ForeColor = TextDim,
                 BackColor = Color.Transparent,
                 FlatStyle = FlatStyle.Flat,
@@ -213,10 +212,14 @@ namespace Baihe.OnlineInstaller
                 // 3. 下载
                 _tempExePath = Path.Combine(Path.GetTempPath(), $"BaiheServer_Setup_v{info.Version}_dl.exe");
                 try { if (File.Exists(_tempExePath)) File.Delete(_tempExePath); } catch { }
-                _downloading = true;
                 _cts = new CancellationTokenSource();
 
-                using (var dl = new Downloader(info.BestUrl, _tempExePath, threads: 8))
+                using (var dl = new Downloader(
+                    info.Candidates != null && info.Candidates.Length > 0
+                        ? info.Candidates
+                        : new[] { info.BestUrl, info.DownloadUrl },
+                    _tempExePath,
+                    threads: 8))
                 {
                     var ok = await dl.DownloadAsync(
                         (down, total, speed) =>
@@ -237,7 +240,6 @@ namespace Baihe.OnlineInstaller
                     }
                 }
 
-                _downloading = false;
                 _progress = 1.0;
                 InvalidateProgress();
 
@@ -369,14 +371,11 @@ namespace Baihe.OnlineInstaller
             using (var accent = new SolidBrush(Accent))
                 g.FillRectangle(accent, 0, 0, ClientSize.Width, 3);
 
-            // macOS 风格交通灯（装饰，左上角红黄绿）
-            DrawTrafficLights(g);
-
             // Logo（圆角方块 + 白字）
             var logoRect = new Rectangle(28, 106, 52, 52);
             using (var logoBg = new LinearGradientBrush(logoRect, Accent, Color.FromArgb(0, 90, 200), LinearGradientMode.ForwardDiagonal))
                 g.FillRounded(logoBg, logoRect, 14);
-            using (var logoText = new Font("Segoe UI", 18F, FontStyle.Bold))
+            using (var logoText = new Font("Microsoft YaHei UI", 18F, FontStyle.Bold))
             using (var brush = new SolidBrush(Color.White))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
@@ -384,10 +383,10 @@ namespace Baihe.OnlineInstaller
             }
 
             // Logo 右侧说明
-            using (var nameFont = new Font("Segoe UI", 11F, FontStyle.Bold))
+            using (var nameFont = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold))
             using (var brush = new SolidBrush(TextMain))
                 g.DrawString("白鹤服务器启动器", nameFont, brush, 94, 112);
-            using (var verFont = new Font("Segoe UI", 8.5F))
+            using (var verFont = new Font("Microsoft YaHei UI", 8.5F))
             using (var brush = new SolidBrush(TextDim))
                 g.DrawString("完整安装包 · 在线自动安装", verFont, brush, 95, 138);
 
@@ -401,10 +400,10 @@ namespace Baihe.OnlineInstaller
             var verLine = _releaseInfo != null
                 ? $"最新版本    v{_releaseInfo.Version}"
                 : "正在获取最新版本...";
-            using (var verFont = new Font("Segoe UI", 10F))
+            using (var verFont = new Font("Microsoft YaHei UI", 10F))
             using (var brush = new SolidBrush(TextMain))
                 g.DrawString(verLine, verFont, brush, 46, 196);
-            using (var dimFont = new Font("Segoe UI", 8.5F))
+            using (var dimFont = new Font("Microsoft YaHei UI", 8.5F))
             using (var brush = new SolidBrush(TextDim))
             {
                 var sub = _releaseInfo != null && !string.IsNullOrEmpty(_releaseInfo.Notes)
@@ -414,29 +413,13 @@ namespace Baihe.OnlineInstaller
             }
         }
 
-        /// <summary>绘制 macOS 交通灯（装饰性红黄绿圆点）</summary>
-        private void DrawTrafficLights(Graphics g)
-        {
-            var colors = new[] { Color.FromArgb(255, 95, 87), Color.FromArgb(254, 190, 46), Color.FromArgb(40, 200, 64) };
-            var x = 28;
-            for (var i = 0; i < 3; i++)
-            {
-                using (var brush = new SolidBrush(colors[i]))
-                {
-                    // 外圈微亮，内圈主体，模拟 macOS 立体感
-                    using (var pen = new Pen(Color.FromArgb(255, 255, 255, 30)))
-                        g.DrawEllipse(pen, x, 15, 11, 11);
-                    g.FillEllipse(brush, x + 1, 16, 9, 9);
-                }
-                x += 16;
-            }
-        }
-
         private static string FirstLine(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
             var i = s.IndexOf('\n');
             var line = i >= 0 ? s.Substring(0, i) : s;
+            // 清理常见 markdown 符号，避免版本卡片显示 "## xxx"
+            line = line.Replace("#", "").Replace("*", "").Replace("`", "").Trim();
             return line.Length > 46 ? line.Substring(0, 46) + "…" : line;
         }
 
