@@ -26,6 +26,22 @@ namespace Baihe.OnlineInstaller
             }
         }
 
+        /// <summary>解析 JSON 数组（GET /releases 列表端点用）— 失败返回 null</summary>
+        public static List<object> ParseArray(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+                return null;
+            var p = new Parser(json);
+            try
+            {
+                return p.ParseValue() as List<object>;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private sealed class Parser
         {
             private readonly string _s;

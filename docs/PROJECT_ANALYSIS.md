@@ -493,6 +493,7 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 4. `ISCC.exe /DMyAppVersion=$version installer\baihe_installer.iss`（Inno Setup 6）产出完整安装包；随后 `Copy dist\online\BaiheOnlineSetup.exe → dist\BaiheOnlineSetup_v$version.exe`。
 5. softprops/action-gh-release 上传 **两个资产**：`dist/BaiheServer_Setup_v*.exe`（完整安装包）+ `dist/BaiheOnlineSetup_v*.exe`（在线安装器）（**ASCII 文件名**；主程序与在线安装器都靠 tag→exeName 直接构造下载 URL，不走 assets 遍历，见 §7.8 / §10-22）。
 6. 另有独立工作流 **pages.yml**（Deploy Official Site）：push 到 main 且触碰 site/** 或 wiki 相关路径时自动部署——官网（site/）为站点根 https://pkoiuu.github.io/mcbh/ ，网页版维基迁至 /wiki/ 子路径（wiki-site/index.html + 根 wiki.json 副本），news.json 复制到站点根供官网公告区与启动器共用。
+7. **test-release.yml**（Test Release，v1.1.26 开发期引入）：推送 `vX.Y.Z-test<N>` 标签（如 v1.1.26-test1）或手动 dispatch → 构建双安装包并发布为**预发布 Release**。核心机制：GitHub `/releases/latest` 端点天然排除预发布，故主程序 UpdateService 与正式在线安装器均不会把测试包推给玩家（稳定通道零感知）。版本号映射：资产名保留完整 tag（`BaiheServer_Setup_v1.1.26-test1.exe`），Host FileVersion=基础版.序号=1.1.26.1（纯数值可比较），Inno 显示版=基础版；测试在线安装器经 AssemblyMetadata("AppVersion") 注入 tag 全值 + Program.IsTestBuild 判定走 `/releases?per_page=15` 列表挑同族 `-test` 预发布（GetLatestTestAsync），确保拉到同族测试完整包而非稳定包；Release job 有 `!contains(ref,'-test')` 守卫防双流水线重复跑。注意事项见 §15.4。
 
 > .minecraft（约 1.3GB）不进 git，存于 release asset `v1.0-assets`，更新游戏文件后跑 `scripts/upload-minecraft-assets.ps1` 重新上传（7z -mx=9，排除 logs/crash-reports/downloads/servers.dat_old 等）。
 > CI 与 Release 均已加 **pnpm store / node_modules 与 NuGet 缓存**（actions/cache，按 lock/csproj 哈希做 key）。
@@ -687,3 +688,12 @@ A5. 老问题复核（v1.1.25 未变）：第三方密码明文存 account.json�
 2. **本地 ≠ 远程**：本地工作区 csproj 版本、本地 tag、本地 CI 状态均不等于 GitHub 上的事实；未提交/未推送的改动不得声称「已在 GitHub 编译」。
 3. **不预设版本号**：未发布的版本号不得写进交付总结或文档作为已发生事实；方案中若要提及目标版本号，必须注明「待 bump / 需用户确认」。
 4. **发布流程**：版本号 bump（csproj AssemblyVersion/FileVersion + iss 默认值）→ 提交推送触发 CI → 打 tag 触发 release.yml；每一步在 GitHub Actions 上确认 success 后再向用户汇报。
+
+### 15.4 测试渠道发版 SOP（test-release.yml，v1.1.26 引入）
+
+1. **打测试标签**：`git tag v1.1.26-test1 && git push origin v1.1.26-test1`——tag 的基础版必须是**尚未发布的下一个版本号**（不能复用已发布的 Z），序号每轮递增。
+2. **盯 Actions**：「Test Release」success；同时确认「Release」被守卫跳过（skipped）。
+3. **验证预发布**：`gh api repos/pkoiuu/mcbh/releases --jq '.[0] | {tag_name, prerelease, assets:[.assets[].name]}'` 应返回该 test tag、prerelease=true、双资产齐全；`releases/latest` 应仍指向最新**正式**版（隐身生效）。
+4. **本机测试**：从 Releases 页下载 `BaiheOnlineSetup_v*-test*.exe` 运行（会拉同族测试完整包）或直接下完整离线包装上验证修复点。
+5. **迭代或转正**：再修一轮 → 打 `test2` 重跑；确认无误后走正常正式发版流程（bump 三处版本号 → 正式 tag）。⚠️ 转正后测试机可能收不到正式版的更新横幅（FileVersion 相对关系，如 1.1.26.3 > 1.1.26.0），手动重装一次正式包即可恢复同步。
+6. **边界**：测试版与正式版同 AppId 同安装目录，安装即覆盖；`.minecraft` 数据按 iss 既有的升级保留规则处理不受影响。

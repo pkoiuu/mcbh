@@ -64,9 +64,13 @@ namespace Baihe.OnlineInstaller
 
         /// <summary>
         /// 获取最新版本信息（仅查版本号与 Release 信息，不测速）
+        /// 测试构建走 GetLatestTestAsync 通道，正式构建查 /releases/latest（天然排除预发布）
         /// </summary>
         public static async Task<ReleaseInfo> GetLatestAsync()
         {
+            if (Program.IsTestBuild)
+                return await GetLatestTestAsync();
+
             foreach (var apiUrl in ApiUrls)
             {
                 try
@@ -133,6 +137,77 @@ namespace Baihe.OnlineInstaller
         private static string GetString(Dictionary<string, object> obj, string key)
         {
             return obj != null && obj.TryGetValue(key, out var v) && v is string s ? s : "";
+        }
+
+        // =========================================================================
+        // 测试通道 — 仅 IsTestBuild=true 的构建使用
+        // 从 /releases 列表里挑与本构建同基础版本的最新 -test 预发布，
+        // 使测试在线安装器能拉到同族的测试完整包（/releases/latest 看不到预发布）
+        // =========================================================================
+
+        /// <summary>测试通道版本获取：返回同族最新测试预发布的下载信息；无匹配时返回 null</summary>
+        private static async Task<ReleaseInfo> GetLatestTestAsync()
+        {
+            // 自身基础版本："1.1.26-test3" → "1.1.26"（家族前缀 v1.1.26-test*）
+            var selfVer = Program.AppVersion;
+            var dashIdx = selfVer.IndexOf('-');
+            var basePart = dashIdx > 0 ? selfVer.Substring(0, dashIdx) : selfVer;
+            var familyPrefix = "v" + basePart + "-test";
+
+            string listJson = null;
+            foreach (var apiUrl in ApiUrls)
+            {
+                try
+                {
+                    // /releases/latest → /releases?per_page=15（镜像源同样适用列表路径）
+                    var listUrl = apiUrl.EndsWith("/releases/latest", StringComparison.Ordinal)
+                        ? apiUrl.Substring(0, apiUrl.Length - "/latest".Length) + "?per_page=15"
+                        : apiUrl;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(ApiTimeoutSec));
+                    using var resp = await Http.GetAsync(listUrl, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+                    if (!resp.IsSuccessStatusCode)
+                        continue;
+                    listJson = await resp.Content.ReadAsStringAsync();
+                    if (SimpleJson.ParseArray(listJson) is { Count: > 0 })
+                        break;
+                    listJson = null;
+                }
+                catch
+                {
+                    // 尝试下一个 API 源
+                }
+            }
+            if (listJson == null)
+                return null;
+
+            var arr = SimpleJson.ParseArray(listJson);
+            // 列表按创建时间倒序——取第一个同族且标记为预发布的条目
+            foreach (var itemObj in arr)
+            {
+                if (itemObj is not Dictionary<string, object> item)
+                    continue;
+                var tagRaw = GetString(item, "tag_name");
+                var tagNoV = tagRaw.TrimStart('v', 'V');
+                if (string.IsNullOrEmpty(tagNoV))
+                    continue;
+                var isPrerelease = item.TryGetValue("prerelease", out var pv) && pv is bool pb && pb;
+                if (!isPrerelease || !tagNoV.StartsWith(basePart + "-test", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var exeName = $"BaiheServer_Setup_v{tagNoV}.exe";
+                return new ReleaseInfo
+                {
+                    Version = tagNoV,
+                    ReleaseUrl = GetString(item, "html_url"),
+                    Notes = GetString(item, "body"),
+                    BestUrl = $"{AcceleratorHost}/github.com/{Program.RepoOwner}/{Program.RepoName}/releases/download/v{tagNoV}/{exeName}",
+                    Candidates = new[] { $"{AcceleratorHost}/github.com/{Program.RepoOwner}/{Program.RepoName}/releases/download/v{tagNoV}/{exeName}" },
+                    Source = "自建加速·测试通道",
+                };
+            }
+
+            // 没有同族测试预发布 —— 让上层明确报「无法获取」而不是静默拉错稳定包
+            return null;
         }
     }
 }

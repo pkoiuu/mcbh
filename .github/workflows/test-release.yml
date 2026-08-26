@@ -1,12 +1,16 @@
-# Release 构建 — 打 tag v* 自动构建完整安装包并发布到 GitHub Releases
-# 产出: 开箱即用的 EXE 安装包，包含启动器 + JRE 21 + WebView2 + .minecraft 全量游戏文件
-# 优化: 并行准备阶段 (前端+JRE+WebView2+.minecraft+NuGet restore) + 多进程发布
-name: Release
+# 测试版发布构建 — 推送形如 vX.Y.Z-test<N> 的标签（如 v1.1.26-test1）自动云打包并发布为「预发布 Release」
+# 关键机制: GitHub /releases/latest 端点天然排除预发布 —— 主程序自动更新与正式在线安装器
+#           均查询该端点，因此测试包对稳定通道完全不可见，玩家侧零影响。
+# 版本号映射: tag v1.1.26-test1 → 资产 BaiheServer_Setup_v1.1.26-test1.exe
+#            FileVersion = 基础版.序号 = 1.1.26.1（纯数字四段，test 包之间可比）
+# 注意: 需要同时存在同族测试完整包后，测试在线安装器才能拉到对应版本（拉不到会明确报错而非错拉稳定包）
+name: Test Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-test*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,9 +21,7 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
 
 jobs:
-  release:
-    # 守卫: 测试 tag（vX.Y.Z-testN）由 test-release.yml 处理，此处跳过避免双流水线重复跑
-    if: ${{ !contains(github.ref_name, '-test') }}
+  test-release:
     runs-on: windows-latest
 
     steps:
@@ -65,18 +67,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      # ===== 并行准备阶段: 前端 + JRE + WebView2 + .minecraft + NuGet restore + 在线安装器 =====
-      # 六个独立操作同时执行，原串行约 215s，并行后约 120s (节省 ~95s)
+      # ===== 并行准备阶段（与正式 Release 相同的六路并行）=====
       - name: Parallel preparation (frontend + JRE + WebView2 + .minecraft + restore + online installer)
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BAIHE_ONLINE_TOKEN: ${{ secrets.BAIHE_ONLINE_TOKEN }}
         run: |
-          Write-Host '=== Starting parallel preparation phase ==='
+          Write-Host '=== Test Release: starting parallel preparation ==='
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          Write-Host "Building TEST build from tag: $tagNoV"
           New-Item -ItemType Directory -Path 'dist\launcher' -Force | Out-Null
 
-          # 1. JRE 构建 (后台, 约 30-60s)
+          # 1. JRE 构建 (后台)
           $jreJob = Start-Job -ScriptBlock {
             param($javaHome, $workDir)
             $env:JAVA_HOME = $javaHome
@@ -88,7 +91,7 @@ jobs:
               --strip-debug --no-man-pages --no-header-files --compress=2 2>&1
           } -ArgumentList $env:JAVA_HOME, $PWD
 
-          # 2. WebView2 下载 (后台, 约 10-20s)
+          # 2. WebView2 下载 (后台)
           $wv2Job = Start-Job -ScriptBlock {
             param($workDir)
             Set-Location $workDir
@@ -96,7 +99,7 @@ jobs:
               -OutFile "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" 2>&1
           } -ArgumentList $PWD
 
-          # 3. .minecraft 下载+解压 (后台, 约 60-120s)
+          # 3. .minecraft 下载+解压 (后台)
           $mcJob = Start-Job -ScriptBlock {
             param($workDir, $ghToken)
             $env:GH_TOKEN = $ghToken
@@ -106,39 +109,35 @@ jobs:
             Remove-Item minecraft.7z 2>&1
           } -ArgumentList $PWD, $env:GH_TOKEN
 
-          # 4. NuGet restore (后台, 约 15-30s, 不依赖 wwwroot)
-          # 注: 必须与 publish 使用相同的属性 (PublishReadyToRun=true)，否则 R2R 运行时包未还原导致 NETSDK1094
+          # 4. NuGet restore (后台)
           $restoreJob = Start-Job -ScriptBlock {
             param($workDir)
             Set-Location $workDir
             dotnet restore src/Baihe.Host/Baihe.Host.csproj -p:PublishReadyToRun=true 2>&1
           } -ArgumentList $PWD
 
-          # 5. 在线安装器构建 (后台, 约 15-30s, net48 独立项目) — 并入并行阶段省串行时间
-          # 自建加速服务令牌从 secrets 注入（源码不含令牌）
+          # 5. 在线安装器构建 (后台) — 注入 AppVersionOverride=tag全值，使测试在线安装器走测试通道
           $onlineJob = Start-Job -ScriptBlock {
-            param($workDir, $onlineToken)
+            param($workDir, $onlineToken, $appVerOverride)
             Set-Location $workDir
             if (-not [string]::IsNullOrEmpty($onlineToken)) {
-              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo -p:OnlineToken=$onlineToken 2>&1
+              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo -p:OnlineToken=$onlineToken -p:AppVersionOverride=$appVerOverride 2>&1
             } else {
-              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo 2>&1
+              dotnet publish src/Baihe.OnlineInstaller/Baihe.OnlineInstaller.csproj -c Release -o dist\online --nologo -p:AppVersionOverride=$appVerOverride 2>&1
             }
-          } -ArgumentList $PWD, $env:BAIHE_ONLINE_TOKEN
+          } -ArgumentList $PWD, $env:BAIHE_ONLINE_TOKEN, $tagNoV
 
-          # 6. 前端构建 (前台, 约 15s)
+          # 6. 前端构建 (前台)
           Write-Host '--- Building frontend ---'
           Set-Location src/Baihe.UI
           pnpm install --frozen-lockfile --prefer-offline
           pnpm build
           Set-Location ../..
 
-          # 等待所有后台任务
           Write-Host '--- Waiting for background jobs ---'
           $jobs = @($jreJob, $wv2Job, $mcJob, $restoreJob, $onlineJob)
           Wait-Job -Job $jobs
 
-          # 检查结果并输出日志
           foreach ($job in $jobs) {
             $name = switch ($job.Id) {
               $jreJob.Id      { 'JRE build' }
@@ -157,21 +156,26 @@ jobs:
           }
           Write-Host '=== Parallel preparation complete ==='
 
-      # ===== 发布后端 (多进程编译, 跳过冗余 restore) =====
+      # ===== 发布后端 =====
+      # FileVersion = 基础版.序号（如 1.1.26.1）：纯数值合法；同族 test 包之间可比较且高于旧正式版
       - name: Publish Baihe.Host
         env:
           BAIHE_ONLINE_TOKEN: ${{ secrets.BAIHE_ONLINE_TOKEN }}
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          Write-Host "Publishing version: $version"
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          $baseVersion = $tagNoV -replace '-test.*$', ''
+          $testSeq = '0'
+          if ($tagNoV -match '-test\.?(\d+)$') { $testSeq = $Matches[1] }
+          $fileVersion = "$baseVersion.$testSeq"
+          Write-Host "Publishing TEST version: tag=$tagNoV fileVersion=$fileVersion"
           if (-not [string]::IsNullOrEmpty($env:BAIHE_ONLINE_TOKEN)) {
             dotnet publish src/Baihe.Host/Baihe.Host.csproj `
               -c Release -r win-x64 --self-contained true `
               -p:PublishSingleFile=false `
               -p:PublishReadyToRun=true `
               -p:PublishTrimmed=false `
-              -p:AssemblyVersion=$version `
-              -p:FileVersion=$version `
+              -p:AssemblyVersion=$fileVersion `
+              -p:FileVersion=$fileVersion `
               -p:OnlineToken=$env:BAIHE_ONLINE_TOKEN `
               -o dist\launcher -m --no-restore
           } else {
@@ -180,8 +184,8 @@ jobs:
               -p:PublishSingleFile=false `
               -p:PublishReadyToRun=true `
               -p:PublishTrimmed=false `
-              -p:AssemblyVersion=$version `
-              -p:FileVersion=$version `
+              -p:AssemblyVersion=$fileVersion `
+              -p:FileVersion=$fileVersion `
               -o dist\launcher -m --no-restore
           }
 
@@ -191,72 +195,46 @@ jobs:
           Copy-Item installer_resources\icon.ico dist\launcher\ -Force
           Copy-Item fabric-installer.jar dist\launcher\ -Force
 
-      # ===== 验证打包内容完整性 (信息性，不阻断构建) =====
-      - name: Verify package contents
-        run: |
-          $ErrorActionPreference = 'Continue'
-          Write-Host "=== dist\launcher ==="
-          if (Test-Path dist\launcher) { Get-ChildItem dist\launcher -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}} }
-          Write-Host "`n=== dist\launcher\jre\bin ==="
-          if (Test-Path dist\launcher\jre\bin) { Get-ChildItem dist\launcher\jre\bin -File | Select-Object Name }
-          Write-Host "`n=== dist\launcher\wwwroot ==="
-          if (Test-Path dist\launcher\wwwroot) { Get-ChildItem dist\launcher\wwwroot -File | Select-Object Name }
-          Write-Host "`n=== dist\.minecraft ==="
-          if (Test-Path dist\.minecraft) { Get-ChildItem dist\.minecraft -Directory | Select-Object Name }
-          Write-Host "`n=== .minecraft\versions ==="
-          if (Test-Path dist\.minecraft\versions) { Get-ChildItem dist\.minecraft\versions -Directory | Select-Object Name }
-          Write-Host "`n=== .minecraft\mods ==="
-          if (Test-Path dist\.minecraft\mods) { Get-ChildItem dist\.minecraft\mods -File | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,0)}} }
-          Write-Host "`n=== .minecraft\.fabric ==="
-          if (Test-Path dist\.minecraft\.fabric) { Write-Host "Fabric cache: EXISTS" } else { Write-Host "Fabric cache: MISSING!" }
-          Write-Host "`n=== .minecraft\assets\objects count ==="
-          if (Test-Path dist\.minecraft\assets\objects) { (Get-ChildItem dist\.minecraft\assets\objects -Recurse -File).Count } else { Write-Host "assets/objects: MISSING!" }
-
       # ===== 编译 Inno Setup 安装包 =====
       - name: Build installer with Inno Setup
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          Write-Host "Building installer version: $version"
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$version installer\baihe_installer.iss
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          $baseVersion = $tagNoV -replace '-test.*$', ''
+          Write-Host "Building installer display version: $baseVersion (asset keeps full tag $tagNoV)"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=$baseVersion installer\baihe_installer.iss
 
-      # ===== 在线安装器命名（已在并行阶段构建到 dist\online）=====
-      - name: Name online installer artifact
+      # ===== 资产命名（保留完整 tag 后缀以区分多个测试包）=====
+      - name: Name artifacts with full test tag
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          Copy-Item dist\online\BaiheOnlineSetup.exe "dist\BaiheOnlineSetup_v$version.exe" -Force
-          Get-ChildItem dist\BaiheOnlineSetup_v$version.exe | Select-Object Name, @{N='SizeKB';E={[math]::Round($_.Length/1KB,1)}}
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          $baseVersion = $tagNoV -replace '-test.*$', ''
+          # Inno 按 /DMyAppVersion=$baseVersion 输出 dist\BaiheServer_Setup_v<base>.exe → 重命名为带 -test 后缀的唯一资产名
+          Move-Item "dist\BaiheServer_Setup_v$baseVersion.exe" "dist\BaiheServer_Setup_v$tagNoV.exe" -Force
+          Copy-Item dist\online\BaiheOnlineSetup.exe "dist\BaiheOnlineSetup_v$tagNoV.exe" -Force
+          Get-ChildItem dist\*test*.exe | Select-Object Name, @{N='SizeMB';E={[math]::Round($_.Length/1MB,1)}}
 
-      # ===== 上传到 GitHub Releases =====
-      - name: Upload installer to Release
+      # ===== 上传到 GitHub Releases（prerelease 标记 = 稳定通道不可见）=====
+      - name: Upload test artifacts to Prerelease
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: true
           files: |
-            dist/BaiheServer_Setup_*.exe
-            dist/BaiheOnlineSetup_v*.exe
+            dist/BaiheServer_Setup_v*-test*.exe
+            dist/BaiheOnlineSetup_v*-test*.exe
           generate_release_notes: true
           body: |
-            ## 白鹤服务器启动器 v${{ github.ref_name }}
+            ## ⚠️ 内部测试构建 — ${{ github.ref_name }}
 
-            ### 包含内容
-            - 白鹤启动器主程序 (自包含 .NET 10 运行时)
-            - Java 21 JRE (20 模块，jlink 最小化构建，含 java.compiler + jdk.unsupported)
-            - WebView2 Runtime 离线安装程序
-            - Minecraft 1.21.8 + Fabric Loader (最新稳定版)
-            - 13 个预装模组 (钠、玉、苹果皮、Xaero小地图、Iris、IMBlocker 等)
-            - 4 个预装光影包 (Complementary、BSL、Sildur's、MakeUp)
-            - 3985+ 个资源文件 (assets/objects)
-            - 113 个库文件 (含原生库)
-            - 全量模组配置文件
+            > 本 Release 为**预发布**：主程序自动更新与官方在线安装器均不会向普通玩家推送此版本。
+            > 仅限内部测试使用。测试完成后请安装正式版或等待下一个正式 Release。
 
-            ### 系统要求
-            - Windows 10 64 位或更高
-            - 无需预装 Java 或 .NET
-            - 无需管理员权限
+            ### 下载说明
+            - `BaiheOnlineSetup_v*-test*.exe`（约 40KB）：运行后自动经加速线路下载对应版本的测试完整包
+            - `BaiheServer_Setup_v*-test*.exe`：完整离线安装包（内置游戏）
 
-            ### 安装说明
-            下载 EXE 安装包，双击运行即可。安装程序会自动:
-            1. 安装到用户目录 (%LOCALAPPDATA%\BaiheServer)
-            2. 检测并安装 WebView2 Runtime (如未安装)
-            3. 创建桌面和开始菜单快捷方式
+            ### 已知边界
+            - 与正式版共用同一安装目录/AppId，安装会覆盖现有正式版（用于固定测试机时属预期行为）
+            - 若之后发布了同基础版本号的正式版（如本包为 v1.1.26-testN、正式为 v1.1.26），
+              测试机的启动器可能不会弹正式版更新横幅（FileVersion 相对关系），手动重装一次即可
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

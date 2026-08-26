@@ -21,10 +21,15 @@
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
         <!-- 自建加速服务令牌：编译时通过 -p:OnlineToken=xxx 注入（release.yml 用 secrets），源码不含令牌 -->
         <OnlineToken></OnlineToken>
+        <!-- 测试渠道：test-release.yml 传 -p:AppVersionOverride=<tag去掉v的全值，如 1.1.26-test1>；
+             正式构建留空 → Program.AppVersion 回退 FallbackVersion 常量，行为与旧版完全一致 -->
+        <AppVersionOverride></AppVersionOverride>
     </PropertyGroup>
     <ItemGroup>
         <!-- 令牌编译注入点：程序运行时从 AssemblyMetadata 读取 OnlineToken -->
         <AssemblyMetadata Include="OnlineToken" Value="$(OnlineToken)" />
+        <!-- 测试版版本注入点：空值时 Program.ResolveAppVersion 自动忽略并回退常量 -->
+        <AssemblyMetadata Include="AppVersion" Value="$(AppVersionOverride)" />
     </ItemGroup>
     <ItemGroup>
         <!-- .NET Framework 4.8 引用程序集（编译所需，CI/本地均可还原） -->

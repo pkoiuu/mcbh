@@ -12,8 +12,34 @@ namespace Baihe.OnlineInstaller
 {
     internal static class Program
     {
-        /// <summary>当前版本（与主程序同步）</summary>
-        public const string AppVersion = "1.1.25";
+        /// <summary>正式构建的回退版本号 — 与 Baihe.Host csproj / iss 同步维护</summary>
+        private const string FallbackVersion = "1.1.25";
+
+        /// <summary>
+        /// 当前版本 — 正式构建 = FallbackVersion 常量；
+        /// 测试构建由 test-release.yml 经 -p:AppVersionOverride=&lt;tag去v全值&gt; 注入 AssemblyMetadata，
+        /// 运行时优先反射读取（如 "1.1.26-test1"）
+        /// </summary>
+        public static readonly string AppVersion = ResolveAppVersion();
+
+        /// <summary>是否测试构建（版本串含 "-test"）— 测试在线安装器据此走测试通道拉取同族预发布完整包</summary>
+        public static readonly bool IsTestBuild = AppVersion.IndexOf('-') >= 0;
+
+        private static string ResolveAppVersion()
+        {
+            try
+            {
+                foreach (var attr in System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+                {
+                    var m = (System.Reflection.AssemblyMetadataAttribute)attr;
+                    if (m.Key == "AppVersion" && !string.IsNullOrEmpty(m.Value))
+                        return m.Value;
+                }
+            }
+            catch { }
+            return FallbackVersion;
+        }
 
         /// <summary>GitHub 仓库</summary>
         public const string RepoOwner = "pkoiuu";
