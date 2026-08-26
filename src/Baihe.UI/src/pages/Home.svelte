@@ -126,6 +126,16 @@
     return ' · 约 ' + (bytes / 1048576).toFixed(1) + ' MB'
   }
 
+  /** 全量兜底下载（两级式在线安装器）— 横幅多处入口共用 */
+  async function handleFullDownload(): Promise<void> {
+    if (!updateInfo) return
+    try {
+      await ipc('update.download', updateInfo.latestVersion)
+    } catch {
+      toast.error('无法启动更新下载')
+    }
+  }
+
   // patch.* 推送订阅 — 挂载即注册，卸载时清理
   $effect(() => {
     const offProgress = on<{ percent: number; receivedMB: number; totalMB: number }>(
@@ -349,7 +359,12 @@
       <div class="flex items-center gap-3 rounded-[var(--radius)] border border-blue-500/30 bg-blue-500/10 p-4">
         <Icon name="info" size={20} class="text-blue-400 shrink-0" />
         <div class="min-w-0 flex-1">
-          <div class="text-sm font-medium text-[var(--foreground)]">发现新版本 v{updateInfo.latestVersion}</div>
+          <div class="text-sm font-medium text-[var(--foreground)]">
+            发现新版本 v{updateInfo.latestVersion}
+            {#if updateInfo.latestVersion.includes('-test')}
+              <span class="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-400">测试版</span>
+            {/if}
+          </div>
           {#if patchPct !== null && !patchStaged}
             <!-- 增量包下载进度条（原位显示） -->
             <div class="mt-1.5 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-[var(--accent)]">
@@ -393,13 +408,7 @@
           <button
             type="button"
             class="shrink-0 text-[12px] text-[var(--muted-foreground)] underline-offset-2 transition-[opacity] hover:opacity-70 hover:underline"
-            onclick={async () => {
-              try {
-                await ipc('update.download', updateInfo!.latestVersion)
-              } catch {
-                toast.error('无法启动更新下载')
-              }
-            }}
+            onclick={handleFullDownload}
             title="完整安装包更新（体积较大，作为兜底）"
           >
             完整包
@@ -408,13 +417,7 @@
           <button
             type="button"
             class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
-            onclick={async () => {
-              try {
-                await ipc('update.download', updateInfo.latestVersion)
-              } catch {
-                toast.error('无法启动更新下载')
-              }
-            }}
+            onclick={handleFullDownload}
           >
             下载更新
           </button>

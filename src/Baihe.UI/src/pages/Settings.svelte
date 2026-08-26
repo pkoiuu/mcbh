@@ -169,6 +169,8 @@
   let devUnlocked = $state(false)
   let devPasswordError = $state('')
   let chatEnabled = $state(localStorage.getItem('baihe_chat_enabled') === 'true')
+  let allowTestUpdates = $state(false)
+  let allowTestUpdating = $state(false)
 
   /** 生成内存选项 — 基础选项过滤掉超过系统内存 70% 的值，确保推荐值在选项中 */
   function generateMemoryOptions(totalGB: number): number[] {
@@ -343,6 +345,32 @@
     localStorage.setItem('baihe_chat_enabled', String(chatEnabled))
   }
 
+  /** 加载测试版更新开关状态（后端 settings.json） */
+  async function loadAllowTestUpdates(): Promise<void> {
+    try {
+      const s = await ipc<{ allowTestUpdates?: boolean }>('settings.get')
+      allowTestUpdates = s.allowTestUpdates === true
+    } catch { /* 保持默认关闭 */ }
+  }
+
+  /** 切换测试版自动更新开关 — 开启后正式版将接收 test 预发布推送，且不影响更高版本正式版的推送 */
+  async function toggleAllowTestUpdates(): Promise<void> {
+    if (allowTestUpdating) return
+    allowTestUpdating = true
+    const next = !allowTestUpdates
+    try {
+      await ipc('settings.set', { allowTestUpdates: next })
+      allowTestUpdates = next
+      toast.success(next
+        ? '已开启测试版自动更新：将接收更高的 test 版本与正式版推送'
+        : '已关闭：仅接收正式版推送')
+    } catch {
+      toast.error('保存失败，请重试')
+    } finally {
+      allowTestUpdating = false
+    }
+  }
+
   /** 跳转到版本下载页（开发者入口） */
   function goDownload(): void {
     router.navigate('download')
@@ -351,6 +379,7 @@
   // 组件挂载时加载数据
   loadAccount()
   loadAvatar()
+  loadAllowTestUpdates()
   loadJavaInfo()
   loadSettings()
   loadAppVersion()
@@ -683,6 +712,27 @@
                   >
                     <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
                       style="transform: translateX({chatEnabled ? '22px' : '2px'});"></span>
+                  </button>
+                </div>
+
+                <div class="flex items-center justify-between py-3">
+                  <div>
+                    <span class="text-sm font-medium text-[var(--foreground)]">测试版自动更新</span>
+                    <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
+                      接收 test 预发布推送；更高版本的正式版推送不受影响（需重新打开启动器后生效）
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={allowTestUpdates}
+                    disabled={allowTestUpdating}
+                    class="relative h-7 w-12 shrink-0 rounded-full transition-colors duration-150 disabled:opacity-60"
+                    style="background-color: {allowTestUpdates ? 'var(--primary)' : 'var(--accent)'};"
+                    onclick={toggleAllowTestUpdates}
+                  >
+                    <span class="absolute left-0 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-150"
+                      style="transform: translateX({allowTestUpdates ? '22px' : '2px'});"></span>
                   </button>
                 </div>
 

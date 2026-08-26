@@ -471,6 +471,14 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 
 生效条件：**同一通道连续两个带 manifest 的版本才产生第一批差量包**（首个 manifest 版只产清单）。
 
+**开发者选项「测试版自动更新」（v1.1.26，AllowTestUpdates）**：Settings → 开发者 开关；开启后正式构建走 CheckMergedUpdateAsync —— 在 releases 列表里同时考察正式版与 test 预发布、取数值最高者为更新目标（测试版高→升测试版并显示徽标；正式版高于测试版→回正式版），关闭后仅 /releases/latest。缓存带 CheckedInTestMode 模式标志防串道。
+
+**自审修复记录（2026-08-27 goal-round1）**：
+1. 稳定通道补丁名真 bug：发布侧资产名用三段 tag（`BaihePatch_v1.1.25_to_X.zip`），匹配侧却用四段程序集版本（`..._v1.1.25.0_to_X.zip`）→ 永不命中；已加 ThreeSeg 归一。
+2. CI 补丁步骤与 manifest 探测逻辑在 release/test 两个工作流重复 60+ 行 → 提取 scripts/update-manifest-step.ps1（-Mode stable|test）共享。
+3. Home.svelte 全量下载 inline handler ×2 → handleFullDownload() 共用。
+4. 注意：manifest 保护规则同时覆盖 servers.json/wechat.json（iss Excludes 实际未列这两个文件，补丁侧兜住即可）。
+
 ### 7.5 遥测流程（TelemetryService）
 
 

@@ -105,13 +105,21 @@ public static class UpdateService
 
     /// <summary>
     /// 检查是否有新版本 — 缓存优先；force=true 时强制重新检查。
-    /// 测试渠道构建(AssemblyMetadata Channel=test)自动改走 CheckTestUpdateAsync(预发布列表)。
+    /// 决策树：
+    ///   测试渠道构建(AssemblyMetadata Channel=test)        → 预发布列表找同族更高 -test；
+    ///   正式构建 且 开发者选项 AllowTestUpdates=true       → 稳定+测试混合检查，取数值最高目标（正式版高于测试版则回正式）；
+    ///   其余                                               → 仅稳定渠道 /releases/latest。
     /// </summary>
     /// <param name="force">是否忽略缓存强制检查（设置页手动检查时传 true）</param>
     public static async Task<UpdateInfo> CheckForUpdateAsync(bool force = false)
     {
         if (BuildInfo.IsTestChannel && !string.IsNullOrEmpty(BuildInfo.TagFull))
             return await CheckTestUpdateAsync(force);
+
+        var settings = await SettingsService.GetAsync();
+        if (settings.AllowTestUpdates)
+            return await CheckMergedUpdateAsync(force);
+
         return await CheckStableUpdateAsync(force);
     }
 
@@ -161,14 +169,15 @@ public static class UpdateService
             string source = "自建加速";
 
             // ---- 增量补丁探测: 在 assets 数组里精确名匹配 BaihePatch_v{当前}_to_{最新}.zip ----
-            // (严格相等匹配,规避多 .exe 排序坑;未命中则用户回退完整安装链路)
+            // 注意: 发布侧资产名用 tag 全值(三段式如 1.1.25)，而运行时程序集版本是四段(1.1.25.0)，
+            //       匹配名必须先归一为三段，否则永不命中(2026-08-27 自审发现的真 bug)。
             string? patchUrl = null;
             long patchBytes = 0;
             var hasUpdateFlag = IsNewerVersion(latestVersion, currentVersion);
             if (hasUpdateFlag && root.TryGetProperty("assets", out var assetsEl)
                 && assetsEl.ValueKind == JsonValueKind.Array)
             {
-                var expectPatchName = $"BaihePatch_v{currentVersion}_to_{latestVersion}.zip";
+                var expectPatchName = $"BaihePatch_v{ThreeSeg(currentVersion)}_to_{latestVersion}.zip";
                 foreach (var a in assetsEl.EnumerateArray())
                 {
                     var an = a.TryGetProperty("name", out var nEl) ? nEl.GetString() : null;
@@ -464,6 +473,7 @@ public static class UpdateService
                 PatchUrl = cached.PatchUrl,
                 PatchSizeBytes = cached.PatchSizeBytes,
                 PatchCheckedFor = cached.PatchCheckedFor,
+                CheckedInTestMode = cached.CheckedInTestMode,
             };
         }
         catch
@@ -495,6 +505,7 @@ public static class UpdateService
                 PatchUrl = info.PatchUrl ?? "",
                 PatchSizeBytes = info.PatchSizeBytes,
                 PatchCheckedFor = info.PatchCheckedFor ?? "",
+                CheckedInTestMode = info.CheckedInTestMode,
             };
             File.WriteAllText(CachePath, JsonSerializer.Serialize(cached, JsonOptions));
         }
@@ -522,6 +533,8 @@ public static class UpdateService
         public string PatchUrl { get; set; } = "";
         public long PatchSizeBytes { get; set; }
         public string PatchCheckedFor { get; set; } = "";
+        /// <summary>本次检查所处模式（true=测试/混合通道），缓存命中时必须与当前模式一致</summary>
+        public bool CheckedInTestMode { get; set; }
     }
 
     /// <summary>
@@ -602,20 +615,27 @@ public static class UpdateService
     // 普通玩家构建不含该元数据,永远走 CheckStableUpdateAsync,行为不受影响。
     // =========================================================================
 
-    /// <summary>test tag → 数值 Version("1.1.26-test12" → 1.1.26.12;"1.1.26" → 1.1.26.0)</summary>
+    /// <summary>test tag → 数值 Version("1.1.26-test12" → 1.1.26.12;"1.1.26"/"1.1.26.0" → 1.1.26.0)</summary>
     private static bool TryParseTestVersion(string tagNoV, out Version ver)
     {
         ver = new Version(0, 0);
-        var basePart = tagNoV;
-        var seq = "0";
         var idx = tagNoV.IndexOf("-test", StringComparison.OrdinalIgnoreCase);
         if (idx > 0)
         {
-            basePart = tagNoV.Substring(0, idx);
-            seq = tagNoV.Substring(idx + 5).TrimStart('.');
+            var basePart = tagNoV.Substring(0, idx);
+            var seq = tagNoV.Substring(idx + 5).TrimStart('.');
             if (seq.Length == 0) seq = "0";
+            return Version.TryParse(basePart + "." + seq, out ver);
         }
-        return Version.TryParse(basePart + "." + seq, out ver);
+        return Version.TryParse(tagNoV, out ver);
+    }
+
+    /// <summary>四段程序集版本 → 三段式(与发布侧资产名一致)："1.1.25.0" → "1.1.25"</summary>
+    private static string ThreeSeg(string version)
+    {
+        var parts = version.Split('.');
+        if (parts.Length <= 3) return version;
+        return string.Join('.', parts[0], parts[1], parts[2]);
     }
 
     private static async Task<JsonElement?> FetchStableAndTestTargetsAsync()
@@ -647,7 +667,8 @@ public static class UpdateService
         if (!force)
         {
             var cached = LoadCache();
-            if (cached != null && cached.CurrentVersion == currentVersion && cached.PatchCheckedFor == selfTag)
+            if (cached != null && cached.CurrentVersion == currentVersion && cached.PatchCheckedFor == selfTag
+                && cached.CheckedInTestMode)
                 return cached;
         }
 
@@ -723,6 +744,7 @@ public static class UpdateService
                 PatchUrl = patchUrl,
                 PatchSizeBytes = patchBytes,
                 PatchCheckedFor = selfTag,
+                CheckedInTestMode = true,
             };
             SaveCache(info);
             return info;
@@ -730,13 +752,140 @@ public static class UpdateService
         catch
         {
             var stale = LoadCache(allowStale: true);
-            if (stale != null && stale.PatchCheckedFor == selfTag) return stale;
+            if (stale != null && stale.PatchCheckedFor == selfTag && stale.CheckedInTestMode) return stale;
             return new UpdateInfo
             {
                 HasUpdate = false,
                 CurrentVersion = currentVersion,
                 LatestVersion = currentVersion,
                 DownloadSource = "测试通道",
+            };
+        }
+    }
+
+    /// <summary>
+    /// 混合通道检查（仅正式构建 + 开发者选项 AllowTestUpdates=true 时使用）。
+    /// 在 releases 列表里同时考察正式版与 test 预发布，取数值版本最高的作为更新目标：
+    ///   - 测试版数值高于正式版 → 提示升级测试版（含 tag 全名，前端显示「测试版」徽标）；
+    ///   - 正式版更高           → 回到正式版（满足「版本号大于测试版即可更新为正式版」）。
+    /// 补丁资产按发布侧命名规则精确匹配：from 段 = 自身为 test ? 完整 tag : 三段式程序集版本。
+    /// </summary>
+    private static async Task<UpdateInfo> CheckMergedUpdateAsync(bool force)
+    {
+        var currentVersion = Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString() ?? "1.0.0";
+        // selfName = 发布侧资产名视角的"当前版本"（test 构建用完整 tag，正式用三段式）
+        var isSelfTest = BuildInfo.IsTestChannel && !string.IsNullOrEmpty(BuildInfo.TagFull);
+        var selfTag = BuildInfo.TagFull ?? "";
+        var selfName = isSelfTest ? selfTag : ThreeSeg(currentVersion);
+
+        if (!force)
+        {
+            var cached = LoadCache();
+            if (cached != null && cached.CurrentVersion == currentVersion
+                && cached.CheckedInTestMode && cached.PatchCheckedFor == selfName)
+                return cached;
+        }
+
+        try
+        {
+            var listRoot = await FetchStableAndTestTargetsAsync()
+                ?? throw new HttpRequestException("releases 列表不可达");
+
+            if (!TryParseTestVersion(currentVersion, out var selfNum))
+                selfNum = new Version(0, 0);
+
+            string? targetTag = null;
+            JsonElement targetEl = default;
+            var bestNum = selfNum;
+
+            foreach (var rel in listRoot.EnumerateArray())
+            {
+                var tagRaw = rel.TryGetProperty("tag_name", out var tEl) ? tEl.GetString() ?? "" : "";
+                var tagNoV = tagRaw.TrimStart('v', 'V');
+                if (tagNoV.Length == 0 || string.Equals(tagNoV, selfName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var prerelease = rel.TryGetProperty("prerelease", out var pEl) && pEl.ValueKind == JsonValueKind.True;
+                var isTestRel = tagNoV.Contains("-test", StringComparison.OrdinalIgnoreCase);
+                if (prerelease && !isTestRel)
+                    continue;                      // 只放行 test 预发布，其余预发布忽略
+                if (!TryParseTestVersion(tagNoV, out var tv))
+                    continue;
+                if (tv <= bestNum)
+                    continue;
+                if (!rel.TryGetProperty("assets", out var aProbe)
+                    || aProbe.ValueKind != JsonValueKind.Array
+                    || aProbe.GetArrayLength() == 0)
+                    continue;                      // 无安装包资产的条目无法作为目标
+                bestNum = tv;
+                targetTag = tagNoV;
+                targetEl = rel.Clone();
+            }
+
+            if (targetTag == null)
+            {
+                var none = new UpdateInfo
+                {
+                    HasUpdate = false,
+                    CurrentVersion = currentVersion,
+                    LatestVersion = currentVersion,
+                    DownloadSource = "混合通道",
+                    PatchAvailable = false,
+                    PatchCheckedFor = selfName,
+                };
+                SaveCache(none);
+                return none;
+            }
+
+            var targetIsTest = targetTag.Contains("-test", StringComparison.OrdinalIgnoreCase);
+            var expectPatchName = $"BaihePatch_v{selfName}_to_{targetTag}.zip";
+            string? patchUrl = null;
+            long patchBytes = 0;
+
+            if (targetEl.TryGetProperty("assets", out var assetsEl))
+            {
+                foreach (var a in assetsEl.EnumerateArray())
+                {
+                    var an = a.TryGetProperty("name", out var nEl) ? nEl.GetString() : null;
+                    if (!string.Equals(an, expectPatchName, StringComparison.OrdinalIgnoreCase)) continue;
+                    patchBytes = a.TryGetProperty("size", out var sEl) && sEl.ValueKind == JsonValueKind.Number
+                        ? sEl.GetInt64() : 0;
+                    if (patchBytes > 0)
+                        patchUrl = BuildAcceleratedAssetUrl($"releases/download/v{targetTag}/{expectPatchName}");
+                    break;
+                }
+            }
+
+            var body = targetEl.TryGetProperty("body", out var bEl) ? bEl.GetString() ?? "" : "";
+            var htmlUrl = targetEl.TryGetProperty("html_url", out var uEl) ? uEl.GetString() ?? "" : "";
+            var info = new UpdateInfo
+            {
+                HasUpdate = true,
+                CurrentVersion = currentVersion,
+                LatestVersion = targetTag,
+                DownloadUrl = BuildAcceleratedUrl(targetTag),
+                ReleaseUrl = htmlUrl,
+                ReleaseNotes = body,
+                DownloadSource = targetIsTest ? "测试通道" : "自建加速",
+                PatchAvailable = !string.IsNullOrEmpty(patchUrl),
+                PatchUrl = patchUrl,
+                PatchSizeBytes = patchBytes,
+                PatchCheckedFor = selfName,
+            };
+            SaveCache(info);
+            return info;
+        }
+        catch
+        {
+            var stale = LoadCache(allowStale: true);
+            if (stale != null && stale.CurrentVersion == currentVersion && stale.CheckedInTestMode)
+                return stale;
+            return new UpdateInfo
+            {
+                HasUpdate = false,
+                CurrentVersion = currentVersion,
+                LatestVersion = currentVersion,
+                DownloadSource = "混合通道",
             };
         }
     }
@@ -812,4 +961,7 @@ public class UpdateInfo
 
     /// <summary>测试通道缓存键：本次检查针对的自身 tag（测试构建专用；正式构建为 null）</summary>
     public string? PatchCheckedFor { get; set; }
+
+    /// <summary>本次检查是否处于测试/混合通道（缓存一致性校验用）</summary>
+    public bool CheckedInTestMode { get; set; }
 }

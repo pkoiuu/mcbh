@@ -40,6 +40,13 @@ public class LauncherSettings
 
     /// <summary>QuickPlay 自动连接</summary>
     public bool QuickPlayEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 允许接收测试版更新（开发者选项，默认关闭）。
+    /// 打开后正式构建也会检查预发布渠道并把更高的 test 版本作为更新目标；
+    /// 同时仍正常接收版本号更高的正式版推送。
+    /// </summary>
+    public bool AllowTestUpdates { get; set; } = false;
 }
 
 /// <summary>
@@ -192,6 +199,11 @@ public static class SettingsService
 
         if (args.TryGetProperty("serverPort", out var sp) && sp.TryGetInt32(out var spVal))
             settings.ServerPort = Math.Max(1, Math.Min(spVal, 65535));
+
+        if (args.TryGetProperty("allowTestUpdates", out var at) && at.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            settings.AllowTestUpdates = at.ValueKind == JsonValueKind.True;
+        }
 
         await SaveAsync(settings);
         return settings;
