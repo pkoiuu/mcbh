@@ -1,14 +1,19 @@
-# 网页版维基部署 — 推送到 main 后自动发布到 GitHub Pages
-# 部署内容: wiki-site/（单页应用）+ 仓库根 wiki.json（复制进部署目录，作为远程数据源）
+# 官方网站部署 — 推送到 main 后自动发布到 GitHub Pages
+# 部署内容:
+#   /        ← site/（官网首页）
+#   /wiki/   ← wiki-site/index.html（网页版维基）+ 仓库根 wiki.json（远程数据源）
+#   news.json ← 仓库根公告（与启动器首页共用同一数据源）
 # 启用方式: 仓库 Settings → Pages → Source 选择 "GitHub Actions"（本 workflow 自动接管）
-name: Wiki Pages
+name: Deploy Official Site
 
 on:
   push:
     branches: [main]
     paths:
+      - 'site/**'
       - 'wiki-site/**'
       - 'wiki.json'
+      - 'news.json'
       - 'src/Baihe.UI/src/lib/wiki/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -32,11 +37,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare site
+      - name: Prepare deploy directory
         run: |
-          # wiki.json 复制进部署目录（网页版维基的远程数据源）
-          cp wiki.json wiki-site/wiki.json
-          ls -la wiki-site/
+          mkdir -p deploy/wiki
+          # 官网 → 站点根
+          cp -r site/. deploy/
+          # 网页版维基 → /wiki/
+          cp wiki-site/index.html deploy/wiki/index.html
+          cp wiki.json deploy/wiki/wiki.json
+          # 公告数据源 → 站点根（官网 fetch ./news.json；启动器同样拉仓库根这份）
+          cp news.json deploy/news.json
+          ls -laR deploy | head -60
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -44,7 +55,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: wiki-site
+          path: deploy
 
       - name: Deploy to GitHub Pages
         id: deployment
