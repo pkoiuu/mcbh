@@ -36,13 +36,19 @@
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <!-- 自建加速服务令牌：编译时 -p:OnlineToken=xxx 注入（release.yml 用 secrets），源码不含令牌 -->
         <OnlineToken></OnlineToken>
+        <!-- 测试渠道：test-release.yml 传 -p:AppVersionOverride=<tag去v全值> -p:ChannelOverride=test；
+             正式构建留空 → 运行时忽略，行为与旧版完全一致 -->
+        <AppVersionOverride></AppVersionOverride>
+        <ChannelOverride></ChannelOverride>
         <!-- 应用图标 -->
         <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
     </PropertyGroup>
 
-    <!-- 令牌编译注入点：UpdateService 运行时从 AssemblyMetadata 读取 OnlineToken -->
+    <!-- 令牌/渠道编译注入点：UpdateService·PatchService 运行时从 AssemblyMetadata 读取 -->
     <ItemGroup>
         <AssemblyMetadata Include="OnlineToken" Value="$(OnlineToken)" />
+        <AssemblyMetadata Include="AppVersion" Value="$(AppVersionOverride)" />
+        <AssemblyMetadata Include="Channel" Value="$(ChannelOverride)" />
     </ItemGroup>
 
     <!-- 资源文件 — icon.ico 嵌入为 WPF Resource 供 TrayService 加载 -->
@@ -107,6 +113,7 @@
         <Compile Include="Services\TrayService.cs" />
         <Compile Include="Services\FormatHelper.cs" />
         <Compile Include="Services\UpdateService.cs" />
+        <Compile Include="Services\PatchService.cs" />
         <Compile Include="Services\TelemetryService.cs" />
         <Compile Include="Services\WeChatService.cs" />
         <Compile Include="Services\ShaderService.cs" />

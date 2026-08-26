@@ -159,6 +159,43 @@ public partial class MainWindow : Window
             }
         });
 
+        // 增量更新 — 后台下载差量补丁并校验暂存；立即返回，进度/结果走 patch.* 推送
+        _ipcRouter.Register("update.patch", async _args =>
+        {
+            if (PatchService.IsStaged)
+                return new { success = true, started = false, staged = true };
+
+            var info = await UpdateService.CheckForUpdateAsync(false);
+            if (!info.HasUpdate || !info.PatchAvailable || string.IsNullOrEmpty(info.PatchUrl))
+                return new { success = false, error = "没有可用的增量补丁（将回退完整安装）" };
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await PatchService.DownloadAndStageAsync(info);
+                }
+                catch (Exception pex)
+                {
+                    IpcRouter.PushEvent("patch.error", new { error = pex.Message });
+                }
+            });
+            return new { success = true, started = true, staged = false };
+        });
+
+        // 增量更新应用 — 生成 apply 脚本并启动，随后主程序退出由脚本换文件并重启
+        _ipcRouter.Register("update.patchRestart", async _args =>
+        {
+            var ok = PatchService.TryPrepareAndLaunch(out var err);
+            if (ok)
+            {
+                // 短延迟让前端收到响应后再退出
+                _ = Task.Delay(500).ContinueWith(_ => Dispatcher.Invoke(() => Application.Current.Shutdown()));
+                return new { success = true };
+            }
+            return new { success = false, error = err };
+        });
+
         // 最新动态 — 拉取仓库 news.json（首页公告，可自动更新）
         _ipcRouter.Register("news.list", async _ =>
         {

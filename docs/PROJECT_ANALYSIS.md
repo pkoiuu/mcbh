@@ -260,6 +260,8 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | app.getVersion | — | 版本字符串 | 优先 FileVersion（Release 从 tag 注入），回退 AssemblyVersion（无硬编码） |
 | update.check | {force?} | UpdateInfo | GitHub Releases；**1h 结果缓存（CurrentVersion 一致性校验），`force:true` 强制刷新**；失败先给过期缓存再静默无更新。**v1.1.18+ DownloadUrl 固定为加速直链（source="自建加速"），不再镜像测速** |
 | update.download | version 字符串 | {success,error?} | **v1.1.23+ 两段式升级**：经 8090 加速服务把 `BaiheOnlineSetup_v{ver}.exe`（约 40KB）下载到 %TEMP% 并启动它，500ms 后主程序自己 Shutdown，由在线安装器接管完整包下载与安装（流程见 §7.8） |
+| update.patch | — | {success,started,staged?} | **v1.1.26+ 触发增量更新**：后端 CheckForUpdate 判定 PatchAvailable 后后台下载/校验暂存，进度与结果走 patch.* 推送（§7.9）；无可用补丁返回 success=false |
+| update.patchRestart | — | {success,error?} | 应用已暂存补丁：生成 apply 脚本并启动 → 主程序退出 → 脚本换文件+自动重启新版；未暂存时失败 |
 | news.list | — | NewsItem[] | 首页最新动态（v1.1.8+）：拉取仓库 news.json，失败回退内置 |
 | wiki.get | — | WikiCategory[] | 玩家指南维基（v1.1.15+）：拉取仓库 wiki.json（可远程编辑），失败返回空（前端回退内置） |
 | version.list | typeFilter? | {latest, versions[]} | Mojang 清单（24h 缓存） |
@@ -327,6 +329,9 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | fabric.error | {error} | Fabric 失败 |
 | auth.msDeviceCode | {userCode,verificationUri} | 微软设备码（Login.svelte 展示） |
 | auth.msLoginResult | {success,username,error} | 微软登录结果 |
+| patch.progress | {percent,receivedMB,totalMB} | 增量补丁下载进度（v1.1.26+） |
+| patch.complete | {files,deletes,from,target} | 补丁已暂存就绪，可重启应用 |
+| patch.error | {error} | 补丁下载/校验失败 |
 
 ---
 
@@ -432,7 +437,42 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 
 `mods.list` 时逐个打开 jar 读 `fabric.mod.json`/`quilt.mod.json`：`name`（真实显示名）+ `description`（介绍）+ `icon`（图标文件，支持字符串或 sizes 对象取最大，提取为 base64 data URL，≤1MB）。**中文名映射表 `ChineseNameMap`**（14 个：sodium→钠、iris→Iris 光影、imblocker→输入法冲突修复 等）按 mod id 精确匹配 → displayName 模糊匹配 → 回退原名。解析结果按文件名缓存（mtime/size 变化才失效），避免每次列表都解压 jar。
 
+### 7.9 智能增量更新（相邻版本补丁，v1.1.26 引入）
+
+```text
+发布侧（release.yml / test-release.yml 均执行）
+  Publish/Copy resources 后 → scripts/generate-update-patch.ps1
+    stage 树 = dist\launcher\* + dist\.minecraft\*
+    规则源: iss [Files] 主条目 Excludes 动态解析(glob '\'/' 等价, * 单段)
+          + .minecraft 仅 versions|libraries|assets|mods|shaderpacks 可打
+          + 硬保护: options.txt/servers.dat/config/**/saves/**/screenshots/**/
+            logs/**/crash-reports/**/downloads/**/current_instance.txt/
+            settings.json/account.json/servers.json/wechat.json/*.log/cache/**
+    产出 BaiheManifest_v{ver}.json(全量 rel→size+sha256) — 必产
+         BaihePatch_v{prev}_to_{ver}.zip(+_meta.json 含 files/deletes/hashes)
+         条件: 存在同通道上一版 manifest 且 versions 树无变化(否则 exit 2 只出清单)
+
+启动器侧
+  update.check → UpdateService.CheckForUpdateAsync
+    ├─ 正式构建: /releases/latest → assets 精确名匹配 BaihePatch_v{cur}_to_{latest}.zip
+    └─ 测试构建(Channel=test, TagFull 注入): /releases 列表挑同族更高 -test 预发布,
+       匹配 BaihePatch_v{self}_to_{target}.zip;完整包 URL 兜底照常
+  Home 横幅双态: 增量更新·约XMB → (update.patch)→进度条←patch.progress
+                →patch.complete→「重启完成更新」(update.patchRestart)
+  PatchService.DownloadAndStageAsync: 8090+token 单流下载 → zip-slip 防护解压至
+    %TEMP%\baihe_patch_stage_{tag} → 逐文件 SHA256 对账 _meta.hashes → staged
+  TryPrepareAndLaunch: 生成 baihe_apply_update.ps1(Sleep3→deletes→rename-then-copy×5重试
+    →done.marker→Start Baihe.exe) → powershell 启动 → 主程序 Shutdown
+
+回退矩阵
+  无上一版 manifest | 隔多版 | versions 树变化 | 补丁缺失/校验失败
+      ↓ 全部自动落回既有完整安装链路(update.download 两级式),该链路未动
+```
+
+生效条件：**同一通道连续两个带 manifest 的版本才产生第一批差量包**（首个 manifest 版只产清单）。
+
 ### 7.5 遥测流程（TelemetryService）
+
 
 - 端点：`https://bh-telemetry.hhj520.top`，ApiKey 编译期常量 `5818...`，`X-Api-Key` 头。
 - 会话级去重（`_hasReportedThisSession`）；首次上报前 `GET /api/track/policy` 取服务端策略，**策略明确禁用才跳过；策略不可达按 fail-open（允许上报）**；失败静默。
@@ -697,3 +737,4 @@ A5. 老问题复核（v1.1.25 未变）：第三方密码明文存 account.json�
 4. **本机测试**：从 Releases 页下载 `BaiheOnlineSetup_v*-test*.exe` 运行（会拉同族测试完整包）或直接下完整离线包装上验证修复点。
 5. **迭代或转正**：再修一轮 → 打 `test2` 重跑；确认无误后走正常正式发版流程（bump 三处版本号 → 正式 tag）。⚠️ 转正后测试机可能收不到正式版的更新横幅（FileVersion 相对关系，如 1.1.26.3 > 1.1.26.0），手动重装一次正式包即可恢复同步。
 6. **边界**：测试版与正式版同 AppId 同安装目录，安装即覆盖；`.minecraft` 数据按 iss 既有的升级保留规则处理不受影响。
+7. **增量更新与测试渠道（v1.1.26+）**：test-release.yml 每次都产出 BaiheManifest（补丁资产视条件生成，§7.9）；测试构建注入 AppVersionOverride/ChannelOverride=test → 测试机横幅自动查预发布同族版本并优先走增量；正式玩家链路自「首个带 manifest 的正式版的下一版」起生效。注意：当前最新正式版 v1.1.25 无 manifest 资产 → 从它出发的第一跳（无论到 test1 还是 v1.1.26）必为全量。
