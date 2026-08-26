@@ -244,6 +244,8 @@ jobs:
           $code = $LASTEXITCODE
           Write-Host "generate-update-patch exit code: $code (0=patch produced, 2=manifest-only)"
           Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
+          # 归一化: 2 = 设计内的 manifest-only,不算步骤失败
+          if ($code -eq 2) { exit 0 } else { exit $code }
 
       # ===== 编译 Inno Setup 安装包 =====
       - name: Build installer with Inno Setup

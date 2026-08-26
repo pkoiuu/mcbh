@@ -231,6 +231,8 @@ jobs:
           & pwsh @genArgs
           Write-Host "generate-update-patch exit code: $($LASTEXITCODE) (0=patch produced, 2=manifest-only)"
           Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
+          # 归一化: 2 = 设计内的 manifest-only,不算步骤失败
+          if ($LASTEXITCODE -eq 2) { exit 0 } else { exit $LASTEXITCODE }
 
       # ===== 验证打包内容完整性 (信息性，不阻断构建) =====
       - name: Verify package contents
