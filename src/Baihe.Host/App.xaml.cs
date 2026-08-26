@@ -37,6 +37,10 @@ public partial class App : Application
 
         base.OnStartup(e);
 
+        try { System.IO.File.AppendAllText(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "startup_diag.log"),
+            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 单实例 Mutex 已获取\r\n"); } catch { }
+
         // 启动时预热 options.txt — 保证允许服务器资源包等关键选项在玩家进服前已生效
         Baihe.Host.Services.LaunchService.EnsureLaunchOptions();
     }

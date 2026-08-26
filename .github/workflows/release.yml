@@ -65,28 +65,70 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      # ===== 并行准备阶段: 前端 + JRE + WebView2 + .minecraft + NuGet restore + 在线安装器 =====
-      # 六个独立操作同时执行，原串行约 215s，并行后约 120s (节省 ~95s)
-      - name: Parallel preparation (frontend + JRE + WebView2 + .minecraft + restore + online installer)
+      # ===== v1.1.26+: .minecraft 提取树缓存 —— 键=minecraft.7z 的 asset id，游戏文件更新自动失效 =====
+      - name: Resolve minecraft.7z asset id
+        id: mcasset
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $id = gh api repos/pkoiuu/mcbh/releases/tags/v1.0-assets --jq '.assets[] | select(.name=="minecraft.7z") | .id'
+          Write-Host "minecraft.7z asset id: $id"
+          "id=$id" >> $env:GITHUB_OUTPUT
+
+      - name: Cache extracted .minecraft
+        uses: actions/cache@v4
+        id: mc-cache
+        with:
+          path: dist\.minecraft
+          key: mc7z-${{ steps.mcasset.outputs.id }}
+
+      - name: Fetch & extract minecraft.7z (cache miss)
+        if: steps.mc-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v1.0-assets --pattern "minecraft.7z" --output minecraft.7z --clobber
+          & 'C:\Program Files\7-Zip\7z.exe' x minecraft.7z -odist\ -y
+          Remove-Item minecraft.7z
+
+      # ===== v1.1.26+: JRE jlink 产物缓存 —— 键=模块列表 hash，命中省 30-60s/次 =====
+      - name: Cache bundled JRE
+        uses: actions/cache@v4
+        with:
+          path: dist\launcher\jre
+          key: jre-${{ runner.os }}-${{ hashFiles('scripts/jre-modules.txt') }}-jdk21
+
+      # ===== 并行准备阶段: 前端 + JRE(缓存命中则跳过) + WebView2 + NuGet restore + 在线安装器 =====
+      # (.minecraft 已前置为独立缓存步骤,不再占用并行槽位)
+      - name: Parallel preparation (frontend + JRE + WebView2 + restore + online installer)
+        shell: pwsh
+        env:
           BAIHE_ONLINE_TOKEN: ${{ secrets.BAIHE_ONLINE_TOKEN }}
         run: |
           Write-Host '=== Starting parallel preparation phase ==='
           New-Item -ItemType Directory -Path 'dist\launcher' -Force | Out-Null
 
-          # 1. JRE 构建 (后台, 约 30-60s)
-          $jreJob = Start-Job -ScriptBlock {
-            param($javaHome, $workDir)
-            $env:JAVA_HOME = $javaHome
-            Set-Location $workDir
-            $jmods = "$env:JAVA_HOME\jmods"
-            jlink --module-path $jmods `
-              --add-modules java.base,java.compiler,java.desktop,java.management,java.net.http,java.naming,java.scripting,java.sql,java.xml,java.logging,java.security.sasl,java.transaction.xa,java.instrument,java.prefs,java.rmi,java.security.jgss,jdk.crypto.ec,jdk.zipfs,jdk.management,jdk.unsupported `
-              --output dist\launcher\jre `
-              --strip-debug --no-man-pages --no-header-files --compress=2 2>&1
-          } -ArgumentList $env:JAVA_HOME, $PWD
+          # 1. JRE 构建 (后台, 约 30-60s；jlink 产物缓存命中时跳过)
+          $jreJob = $null
+          if (Test-Path 'dist\launcher\jre\bin\java.exe') {
+            Write-Host 'JRE cache hit — skip jlink build'
+          } else {
+            Write-Host 'JRE cache miss — building via jlink'
+            $mods = ((Get-Content scripts/jre-modules.txt) | Where-Object { $_ -and -not $_.StartsWith('#') }) -join ','
+            if (-not $mods) { throw 'scripts/jre-modules.txt 解析为空' }
+            $jreJob = Start-Job -ScriptBlock {
+              param($javaHome, $workDir, $moduleList)
+              $env:JAVA_HOME = $javaHome
+              Set-Location $workDir
+              $jmods = "$env:JAVA_HOME\jmods"
+              jlink --module-path $jmods `
+                --add-modules $moduleList `
+                --output dist\launcher\jre `
+                --strip-debug --no-man-pages --no-header-files --compress=2 2>&1
+            } -ArgumentList $env:JAVA_HOME, $PWD, $mods
+          }
 
           # 2. WebView2 下载 (后台, 约 10-20s)
           $wv2Job = Start-Job -ScriptBlock {
@@ -96,17 +138,7 @@ jobs:
               -OutFile "dist\launcher\MicrosoftEdgeWebView2RuntimeInstallerX64.exe" 2>&1
           } -ArgumentList $PWD
 
-          # 3. .minecraft 下载+解压 (后台, 约 60-120s)
-          $mcJob = Start-Job -ScriptBlock {
-            param($workDir, $ghToken)
-            $env:GH_TOKEN = $ghToken
-            Set-Location $workDir
-            gh release download v1.0-assets --pattern "minecraft.7z" --output minecraft.7z --clobber 2>&1
-            7z x minecraft.7z -odist\ -y 2>&1
-            Remove-Item minecraft.7z 2>&1
-          } -ArgumentList $PWD, $env:GH_TOKEN
-
-          # 4. NuGet restore (后台, 约 15-30s, 不依赖 wwwroot)
+          # 3. NuGet restore (后台, 约 15-30s, 不依赖 wwwroot)
           # 注: 必须与 publish 使用相同的属性 (PublishReadyToRun=true)，否则 R2R 运行时包未还原导致 NETSDK1094
           $restoreJob = Start-Job -ScriptBlock {
             param($workDir)
@@ -114,7 +146,7 @@ jobs:
             dotnet restore src/Baihe.Host/Baihe.Host.csproj -p:PublishReadyToRun=true 2>&1
           } -ArgumentList $PWD
 
-          # 5. 在线安装器构建 (后台, 约 15-30s, net48 独立项目) — 并入并行阶段省串行时间
+          # 4. 在线安装器构建 (后台, 约 15-30s, net48 独立项目) — 并入并行阶段省串行时间
           # 自建加速服务令牌从 secrets 注入（源码不含令牌）
           $onlineJob = Start-Job -ScriptBlock {
             param($workDir, $onlineToken)
@@ -126,7 +158,7 @@ jobs:
             }
           } -ArgumentList $PWD, $env:BAIHE_ONLINE_TOKEN
 
-          # 6. 前端构建 (前台, 约 15s)
+          # 5. 前端构建 (前台, 约 15s)
           Write-Host '--- Building frontend ---'
           Set-Location src/Baihe.UI
           pnpm install --frozen-lockfile --prefer-offline
@@ -135,7 +167,8 @@ jobs:
 
           # 等待所有后台任务
           Write-Host '--- Waiting for background jobs ---'
-          $jobs = @($jreJob, $wv2Job, $mcJob, $restoreJob, $onlineJob)
+          $jobs = @($wv2Job, $restoreJob, $onlineJob)
+          if ($jreJob) { $jobs = @($jreJob) + $jobs }
           Wait-Job -Job $jobs
 
           # 检查结果并输出日志
@@ -143,7 +176,6 @@ jobs:
             $name = switch ($job.Id) {
               $jreJob.Id      { 'JRE build' }
               $wv2Job.Id      { 'WebView2 download' }
-              $mcJob.Id       { '.minecraft download' }
               $restoreJob.Id  { 'NuGet restore' }
               $onlineJob.Id   { 'Online installer build' }
               default         { 'Unknown' }

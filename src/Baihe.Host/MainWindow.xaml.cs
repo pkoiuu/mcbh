@@ -43,12 +43,66 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        StartupDiag.Log("MainWindow 构造开始");
         // 注册窗口控制和应用信息命令
         RegisterHostCommands();
-        // 创建系统托盘服务
-        _trayService = new TrayService(this);
+        // 创建系统托盘服务（防御化：失败不允许拖垮启动，稍后延迟重试）
+        TryCreateTray(initial: true);
+        if (_trayService == null)
+        {
+            _ = Task.Delay(8000).ContinueWith(t => Dispatcher.Invoke(() => TryCreateTray(initial: false)));
+        }
+        // Explorer 重启后重建托盘图标
+        SourceInitialized += (_, _) => HookTaskbarCreated();
         // 异步初始化 WebView2，不阻塞窗口显示
+        StartupDiag.Log("触发异步 WebView2 初始化");
         _ = InitializeWebViewAsync();
+    }
+
+    /// <summary>
+    /// 创建/重试创建托盘服务 — 记录诊断日志
+    /// </summary>
+    private void TryCreateTray(bool initial)
+    {
+        try
+        {
+            _trayService = new TrayService(this);
+            StartupDiag.Log(initial ? "托盘创建成功" : "托盘延迟重试成功");
+        }
+        catch (Exception tex)
+        {
+            _trayService = null;
+            StartupDiag.Log((initial ? "托盘创建失败" : "托盘延迟重试仍失败") + ": " + tex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 监听 Explorer 的 TaskbarCreated 广播 — 托盘图标因资源管理器重启消失时自动重建
+    /// </summary>
+    private void HookTaskbarCreated()
+    {
+        try
+        {
+            _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
+            System.Windows.Interop.HwndSource.FromHwnd(
+                new System.Windows.Interop.WindowInteropHelper(this).Handle)?
+                .AddHook(WndProcHook);
+            StartupDiag.Log($"TaskbarCreated 钩子注册完成 (msg=0x{_taskbarCreatedMsg:X})");
+        }
+        catch (Exception hex)
+        {
+            StartupDiag.Log("TaskbarCreated 钩子注册失败: " + hex.Message);
+        }
+    }
+
+    private IntPtr WndProcHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == _taskbarCreatedMsg && _taskbarCreatedMsg != 0)
+        {
+            StartupDiag.Log("收到 TaskbarCreated 广播 —— 重建托盘图标");
+            _trayService?.TryRecreate();
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>
@@ -800,8 +854,16 @@ public partial class MainWindow : Window
             : WindowState.Maximized;
     }
 
+    /// <summary>Explorer 重启广播消息 id</summary>
+    private int _taskbarCreatedMsg;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern int RegisterWindowMessage(string lpString);
+
     /// <summary>
-    /// 初始化 WebView2 — 包括环境创建、资源映射和消息处理
+    /// 初始化 WebView2 — 包括环境创建、资源映射和消息处理。
+    /// v1.1.26+: 全程埋点 startup_diag.log；EnsureCoreWebView2Async 带 25s 看门狗，
+    /// 超时按命令行特征定向清除孤儿 msedgewebview2 后重试一次（修复覆盖安装后白屏假死）。
     /// </summary>
     private async Task InitializeWebViewAsync()
     {
@@ -809,14 +871,11 @@ public partial class MainWindow : Window
         {
             // 优先使用固定版本运行时，不存在则使用系统运行时
             var environment = await WebViewHost.CreateEnvironmentAsync();
-            if (environment != null)
-            {
-                await WebView.EnsureCoreWebView2Async(environment);
-            }
-            else
-            {
-                await WebView.EnsureCoreWebView2Async();
-            }
+            StartupDiag.Log(environment != null ? "WebView2 环境: 固定版本运行时" : "WebView2 环境: 系统运行时");
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await EnsureCoreWithWatchdogAsync(environment);
+            StartupDiag.Log($"WebView2 控制器就绪 ({sw.ElapsedMilliseconds}ms)");
 
             var coreWebView = WebView.CoreWebView2;
 
@@ -836,6 +895,7 @@ public partial class MainWindow : Window
             {
                 if (!e.IsSuccess)
                 {
+                    StartupDiag.Log($"前端导航失败: {e.WebErrorStatus}");
                     System.Diagnostics.Debug.WriteLine($"[WebView2] 导航失败: {e.WebErrorStatus}");
                     Dispatcher.Invoke(() =>
                     {
@@ -868,6 +928,8 @@ public partial class MainWindow : Window
                     });
                 }
                 catch { }
+
+                StartupDiag.Log("前端导航完成（页面可用）");
             };
 
             // 设置 IPC 推送回调 — 后端主动向前端推送事件 (下载进度等)
@@ -884,18 +946,72 @@ public partial class MainWindow : Window
             var url = WebViewHost.GetEntryPointUrl();
             System.Diagnostics.Debug.WriteLine($"[WebView2] 导航到: {url}");
             coreWebView.Navigate(url);
+            StartupDiag.Log($"已发起前端导航: {url}");
 
             // 注册 WebMessageReceived 事件 — 转发到 IpcRouter 处理
             WebView.WebMessageReceived += OnWebMessageReceived;
         }
         catch (Exception ex)
         {
+            StartupDiag.LogEx("WebView2 初始化失败", ex);
             // 初始化失败时在窗口中显示错误信息
             MessageBox.Show(
                 $"WebView2 初始化失败:\n\n{ex.Message}\n\n请确保系统已安装 WebView2 Runtime。",
                 "白鹤服务器",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// EnsureCoreWebView2Async 看门狗 — 用户数据目录被孤儿浏览器进程锁定时会无限等待，
+    /// 超时后定向清理（按命令行特征匹配本应用 UDF）并重试一次；仍失败则抛出让外层弹窗。
+    /// </summary>
+    private async Task EnsureCoreWithWatchdogAsync(CoreWebView2Environment? environment)
+    {
+        const int watchdogMs = 25_000;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            var ensureTask = environment != null
+                ? WebView.EnsureCoreWebView2Async(environment)
+                : WebView.EnsureCoreWebView2Async();
+            var completed = await Task.WhenAny(ensureTask, Task.Delay(watchdogMs));
+            if (completed == ensureTask)
+            {
+                await ensureTask; // 观察异常让外层 catch 接管
+                return;
+            }
+
+            StartupDiag.LogEx($"WebView2 初始化第 {attempt} 次尝试超时({watchdogMs / 1000}s) —— 疑似 UDF 被占用", new TimeoutException());
+            KillOrphanWebViewProcesses();
+
+            if (attempt == 2)
+                throw new TimeoutException("WebView2 初始化连续两次超时：用户数据目录疑似被残留浏览器进程锁定，已自动清理，请重试启动。");
+        }
+    }
+
+    /// <summary>
+    /// 定向终止命令行含本应用用户数据目录名的孤儿 msedgewebview2 进程
+    /// （覆盖安装/崩溃遗留场景；不会影响其它应用的 WebView2 实例）
+    /// </summary>
+    private static void KillOrphanWebViewProcesses()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = @"-NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.Name -eq ""msedgewebview2.exe"" -and $_.CommandLine -like ""*Baihe.exe.WebView2*"" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(15000);
+            StartupDiag.Log("孤儿 msedgewebview2 清理指令已执行");
+        }
+        catch (Exception kex)
+        {
+            StartupDiag.Log("孤儿 webview 清理失败: " + kex.Message);
         }
     }
 
@@ -945,8 +1061,44 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             // 记录错误到调试输出，避免静默失败
+            StartupDiag.LogEx("IPC 消息处理失败", ex);
             System.Diagnostics.Debug.WriteLine($"[IPC] 处理消息失败: {ex}");
         }
     }
 
+}
+
+/// <summary>
+/// 启动阶段诊断日志 — 分阶段时间戳写入 exe 目录 startup_diag.log。
+/// 目的：用户侧启动异常（白屏/托盘丢失等）可凭该文件精确定位卡点；
+/// 单文件 512KB 上限自动截断重写。v1.1.26+ 引入。
+/// </summary>
+internal static class StartupDiag
+{
+    private static readonly object Lock = new();
+    private static readonly string LogPath =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "startup_diag.log");
+
+    public static void Log(string message)
+    {
+        try
+        {
+            lock (Lock)
+            {
+                var fi = new System.IO.FileInfo(LogPath);
+                if (fi.Exists && fi.Length > 512 * 1024)
+                    fi.Delete();
+                System.IO.File.AppendAllText(LogPath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\r\n");
+            }
+        }
+        catch { /* 诊断日志绝不影响主流程 */ }
+    }
+
+    public static void LogEx(string what, Exception ex)
+    {
+        Log($"{what} :: {ex.GetType().Name}: {ex.Message}");
+        if (ex.StackTrace != null)
+            Log("  at " + ex.StackTrace.Replace("\r\n", "\r\n  at "));
+    }
 }

@@ -45,7 +45,11 @@ CreateUninstallRegKey=yes
 
 ; 压缩 — lzma2/max 平衡构建速度与安装速度（ultra64 构建/解压过慢，max 明显更快且体积仅略增）
 Compression=lzma2/max
-SolidCompression=yes
+; v1.1.26+: 取消整流打包 —— 5470+ 个小文件解包不再按整段流顺序寻址，安装阶段显著加速
+; （代价: 包体积小幅上升、构建耗时略增，由 LZMANumBlockThreads 多线程补偿）
+SolidCompression=no
+; v1.1.26+: 压缩块并行线程（默认 1）— 4 核 runner 上 2 块线程收益最大（jrsoftware 文档/社区实测）
+LZMANumBlockThreads=2
 LZMAUseSeparateProcess=yes
 
 ; 界面 — 路径相对于 .iss 文件目录
@@ -156,8 +160,15 @@ end;
 function KillApp(): Boolean;
 var
   ResultCode: Integer;
+  Sweep: String;
 begin
   Result := Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "' + AppProcessName + '" /T /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // v1.1.26+: 定向清理孤儿 msedgewebview2 — 崩溃/强杀遗留的浏览器进程会锁定
+  // Baihe.exe.WebView2 用户数据目录,导致下次启动 WebView2 初始化无限等待(白屏假死)。
+  // 按命令行特征精确匹配本应用 UDF,不影响其它应用的 WebView2 实例。
+  Sweep := '/C powershell -NoProfile -Command "& {Get-CimInstance Win32_Process | Where-Object { $_.Name -eq ''msedgewebview2.exe'' -and $_.CommandLine -like ''*Baihe.exe.WebView2*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"';
+  Exec(ExpandConstant('{cmd}'), Sweep, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 // 检测 WebView2 Runtime 是否已安装

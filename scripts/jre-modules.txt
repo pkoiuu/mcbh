@@ -1,0 +1,22 @@
+# Baihe launcher bundled JRE — jlink module list (one per line, '#' comments allowed)
+# Shared by release.yml / test-release.yml jlink build; cache key hashes this file.
+java.base
+java.compiler
+java.desktop
+java.management
+java.net.http
+java.naming
+java.scripting
+java.sql
+java.xml
+java.logging
+java.security.sasl
+java.transaction.xa
+java.instrument
+java.prefs
+java.rmi
+java.security.jgss
+jdk.crypto.ec
+jdk.zipfs
+jdk.management
+jdk.unsupported

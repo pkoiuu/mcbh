@@ -545,12 +545,14 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 
 > .minecraft（约 1.3GB）不进 git，存于 release asset `v1.0-assets`，更新游戏文件后跑 `scripts/upload-minecraft-assets.ps1` 重新上传（7z -mx=9，排除 logs/crash-reports/downloads/servers.dat_old 等）。
 > CI 与 Release 均已加 **pnpm store / node_modules 与 NuGet 缓存**（actions/cache，按 lock/csproj 哈希做 key）。
+> **v1.1.26+ Release/Test 追加两层产物缓存**：①`.minecraft` 提取树（键=minecraft.7z 的 release asset id，游戏文件更新自动失效；省 gh 下载+解压 60-120s/次）②JRE jlink 产物（键=scripts/jre-modules.txt 哈希+jdk21；省 jlink 30-60s/次）——两工作流的并行准备段已把 .minecraft 从后台任务改为前置独立步骤。
 
 ### 9.4 安装器（installer/baihe_installer.iss）
 
 - 安装目录 `%LOCALAPPDATA%\BaiheServer`，`PrivilegesRequired=lowest`（免管理员）；默认版本宏 `MyAppVersion "1.1.25"`（Release 用 /D 覆盖；发新版需同步 Host csproj / OnlineInstaller Program.AppVersion / 此处三处版本号，见 §13-A4）。
 - **升级检测**：固定 AppId（`{8F2B7A3C-...}`）+ UsePreviousAppDir。
-- **升级/安装前杀进程**：`InitializeSetup` / `PrepareToInstall` / `InitializeUninstall` 三重检查 `tasklist` + `taskkill /T /F`（含 WebView2 子进程），用户可取消；PrepareToInstall 最多重试 3 次。
+- **升级/安装前杀进程**：`InitializeSetup` / `PrepareToInstall` / `InitializeUninstall` 三重检查 `tasklist` + `taskkill /T /F`（含 WebView2 子进程），用户可取消；PrepareToInstall 最多重试 3 次。**v1.1.26+ KillApp 追加孤儿 webview 定向清理**（命令行含 `Baihe.exe.WebView2` 的 msedgewebview2 强杀——防 UDF 锁定启动假死，见踩坑 26）。
+- **v1.1.26 压缩/速度参数**：`Compression=lzma2/max` + **`SolidCompression=no`**（安装期解包显著加速；包体积小幅上升为接受对价）+ **`LZMANumBlockThreads=2`**（云构建压缩并行化，默认 1）。改压缩配置时同步评估云构建时长与产物体积。
 - **文件分层**：
   - 启动器本体 `dist\launcher\*` 排除 jre、WebView2 安装包、`settings.json`、`account.json`、`current_instance.txt`、`*.log`、`debug-*.txt`、`cache\*`、`Baihe.exe.WebView2\*`（**升级保留用户配置**；current_instance.txt 在 [InstallDelete] 一并删除——v1.1.24 升级后强制重选实例的修复）。
   - `.minecraft\versions|libraries|assets|mods|shaderpacks` 始终覆盖（ignoreversion；mods/shaderpacks 只更新同名文件，用户自加的不受影响）。
@@ -562,6 +564,8 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 ### 9.5 脚本（scripts/）
 
 - `download-build.ps1`：镜像（ghfast.top > ghproxy.net > gh-proxy.com > ghproxy.link > 直连）下载 CI 的 `latest/baihe-build.zip`，解压部署到 `src/Baihe.Host/bin/CI/...` 并启动（本地体验 CI 构建）。
+- `jre-modules.txt`：内置 JRE 的 jlink 模块清单（release/test 两工作流共用读取；**该文件 hash 是云构建 JRE 缓存键**——改模块列表只需编辑此文件并让缓存自然失效）。
+- `update-manifest-step.ps1` / `generate-update-patch.ps1`：增量更新链路（§7.9）。
 - `fork-rename.ps1`：把 PCL.Core fork 成 Baihe.Core 的重命名/裁剪脚本（Core 已移除，基本不再用）。
 - `upload-minecraft-assets.ps1`：打包 installer_resources/.minecraft 为 minecraft.7z 并上传到 `v1.0-assets` release。
 - `update-bundled-game.ps1 [-GameVersion 1.21.8]`：一键重建内置游戏 —— Mojang manifest 下 vanilla 版本 + Fabric Meta 装 loader + Modrinth API 装模组，写入 installer_resources/.minecraft（含 SHA1 校验、旧版本目录清理）；完成后仍需 upload-minecraft-assets.ps1 重传 minecraft.7z，并同步维护 iss [InstallDelete] 的旧版本迁移条目。
@@ -596,6 +600,8 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 23. **加速服务地址双项目硬编码**：`199.68.217.4:8090/8091` 同时存在于 Host `Services/UpdateService.cs`（AcceleratorBrowserBase/AcceleratorCliBase）与 OnlineInstaller `UpdateService.cs`（AcceleratorHost）——换地址必须两处同步；header 名固定 `token`（8090）/query `?token=`（8091）；URL 必须保留 `github.com/` 前缀；协议是 http 非 https（明文传输 token，§13-A3）。
 24. **csproj 手动列文件的适用范围**：Host 项目 `EnableDefaultCompileItems/PageItems=false`（36 个 `<Compile Include>` 全手动）；OnlineInstaller 是常规 SDK net48 项目用默认 glob，新增 .cs 无需登记。
 25. **发版三处版本号手动同步**：Host csproj AssemblyVersion/FileVersion ↔ OnlineInstaller `Program.AppVersion` ↔ iss `#define MyAppVersion`（v1.1.25 三处一致）——漏一处在两段式升级里会导致在线安装器资产名对不上而 404。
+26. **WebView2 UDF 被孤儿进程锁定 = 启动假死（v1.1.26 修复）**：覆盖安装/崩溃遗留的 msedgewebview2 会锁 `Baihe.exe.WebView2` 用户数据目录，新实例 `EnsureCoreWebView2Async` 永不返回且无异常 —— 表现为「一直加载」，叠加单实例 Mutex 表现为「在托盘却看不见」。三层防线：iss KillApp 安装期定向清理（命令行特征匹配）、启动时 25s 看门狗+清理重试（MainWindow.xaml.cs `EnsureCoreWithWatchdogAsync`）、失败必弹窗不再静默。诊断靠 exe 目录 `startup_diag.log`（分阶段时间戳，512KB 上限自动截断）——用户报告启动问题先要这份日志。
+27. **托盘图标消失（Explorer 重启）**：NotifyIcon 不随 TaskbarCreated 自动恢复 —— MainWindow 已钩 RegisterWindowMessage("TaskbarCreated") 触发 `TrayService.TryRecreate()`；TrayService 构造全程防御化（失败延迟 8s 重试），修改托盘逻辑勿破坏该路径。
 
 ---
 
