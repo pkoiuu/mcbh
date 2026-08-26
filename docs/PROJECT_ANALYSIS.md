@@ -1,23 +1,31 @@
 # 白鹤服务器启动器（Baihe / mcbh）— 项目分析文档
 
 > 用途：为后续代码修改提供一份「以当前源码为准」的架构地图与操作手册。
-> 本文档基于源码实际内容逐文件核验整理（2026-08-25 深度核验版 v2），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
-> 核验基准：工作区当前状态（即将发布 **v1.1.10**，含 玩家指南维基/默认允许资源包/服务器列表选择 三个新功能），AssemblyVersion/FileVersion 1.1.10.0，前端 v0.0.1。
-> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v1.1.10**（维基+资源包+服务器列表）→ **v1.1.11**（修复+在线安装器）→ **v1.1.12**（assets 误选修复）→ **v1.1.13**（mac 美化/16线程/窗口运行中）→ **v1.1.14**（搜索框加宽）→ **v1.1.15**（镜像 24+兜底同步/测速精准/8线程 + 维基远程编辑 wiki.json + 农夫乐事完整指南 + 搜索框重构 + 网页版维基 GitHub Pages）。
+> 本文档基于源码实际内容逐文件核验整理（2026-08-26 深度核验版 v3），覆盖前后端结构、IPC 契约、核心流程、持久化文件、构建方式与「如何新增功能」的步骤。
+> 核验基准：本地工作区 HEAD=03e0a7c（tag v1.1.25），Baihe.Host AssemblyVersion/FileVersion 1.1.25.0，OnlineInstaller Program.AppVersion "1.1.25"，iss `#define MyAppVersion "1.1.25"`，前端 v0.0.1。⚠️ 本次核验时 GitHub 远程网络不可达（SSL 中断），远程 tags/release/actions 未能复核；涉及「是否已在 GitHub 发布/编译过」的断言仍以远端实况为准（§15 规范）。
+> 版本历史：v1（2026-08-18，基线 v1.1.1）→ v2（2026-08-25，核验至 v1.1.9）→ **v3（2026-08-26，核验至 v1.1.25）**。期间主线：v1.1.10 玩家指南维基/资源包默认放行 → v1.1.11 新增在线版安装器 Baihe.OnlineInstaller → v1.1.12 assets 误选修复+selftest → v1.1.15 镜像体系/维基远程化 wiki.json/网页版维基 wiki-site → v1.1.17~20 在线安装器下载链路加固（超时保护/两轮降级/候选线路切换）→ v1.1.18 固定自建加速服务（199.68.217.4:8090，token 编译注入）→ v1.1.21~22 token BOM 清洗/并发16/块级重试 → v1.1.23 主程序两段式升级（update.download）+ETA → v1.1.24 升级实例选择修复 → v1.1.25 移除全部农夫乐事（farm），维基收敛为 8 分类。
 
 ---
 
 ## 0. 当前工作区状态（改代码前必读）
 
-**仓库已完成「移除 Baihe.Core」的架构瘦身重构**（随 v1.1.2 提交，非未提交状态）：`src/Baihe.Core/`（约 300+ 文件）与 `src/Baihe.Core.SourceGenerators/` 已从解决方案移除，`Baihe.slnx` 只剩 `src/Baihe.Host` 一个 .NET 项目。**当前工作区无未提交的源码修改**（仅 .temp/.uploads/baihe-launcher-analysis 等工具目录未跟踪，与源码无关）。
+**仓库已完成「移除 Baihe.Core」的架构瘦身重构**（随 v1.1.2 提交）：`src/Baihe.Core/` 已删除，`Baihe.slnx` 现含 `src/Baihe.Host` 与 `src/Baihe.OnlineInstaller` 两个 .NET 项目。**当前工作区源码干净**；未跟踪项仅工具目录（.temp/.buildtemp/.dsh-vision-toolkit/.trae-html-share-packages/baihe-launcher-analysis）与本文档本身的修订。
 
 **含义与影响**：
 
-1. 当前解决方案（`Baihe.slnx`）只含 `src/Baihe.Host` 一个 .NET 项目；`Baihe.Core` 是从 PCL2-CE fork 出来的核心库（含 Config/EventBus/IoC/Download/IdentityModel 等），本次重构把它整个移除，业务逻辑此前已逐步下沉/重写到 Host 的 Services/ 里。
-2. **不要再创建或引用 `src/Baihe.Core`**。所有新代码一律放 `src/Baihe.Host`（后端）或 `src/Baihe.UI`（前端）。
-3. 老文档（根目录 4 份分析文档）大量描述 Baihe.Core 的架构，已过时；以本文档与 `src/Baihe.Host` 源码为准。
-4. 重构提交后，`PCL2-CE/` 目录仍保留仅作参考（启动/认证逻辑的注释多处「参照 PCL CE」），不参与构建。
-5. **单实例防多开**（v1.1.9）：`App.xaml.cs` 用命名 Mutex（`BaiheServerLauncher_SingleInstance_Mutex_8F2B7A3C`）保证只有一个实例，第二个实例启动时激活已有窗口（SW_RESTORE + SetForegroundWindow）并退出自身。
+1. 当前解决方案（`Baihe.slnx`）= `src/Baihe.Host`（.NET 10 WPF 主程序）+ `src/Baihe.OnlineInstaller`（net48 WinForms 在线安装器）两个 .NET 项目；`Baihe.Core` 是从 PCL2-CE fork 出来的旧核心库，重构时整体移除，业务逻辑已全部下沉/重写到 Host 的 Services/ 里。
+2. **不要再创建或引用 `src/Baihe.Core`**。后端新代码一律放 `src/Baihe.Host`，前端放 `src/Baihe.UI`，只有独立轻量工具才考虑放 `src/Baihe.OnlineInstaller`（net48，零第三方依赖）。
+3. 老文档（根目录 4 份分析文档）大量描述 Baihe.Core 的架构，已过时；以本文档与 `src/` 源码为准。
+4. `PCL2-CE/` 目录仍保留仅作参考（启动/认证逻辑的注释多处「参照 PCL CE」），不参与构建。
+
+**v1.1.10→v1.1.25 形态要点**：
+
+5. **更新体系两级化**：主程序只做版本检查展示横幅；「下载更新」（IPC `update.download`）改为把 40KB 在线安装器下载到 %TEMP% 并启动，主程序随之退出，由在线安装器接管多线程下载完整包 + 启动 Inno 向导（§7.8）。
+6. **固定自建加速服务**：发行版下载统一走 `http://199.68.217.4:8090`（命令行 header token）/`:8091`（浏览器 `?token=` 直链）；URL 格式 = 加速地址 + `github.com/<owner>/<repo>/原路径`（**必须保留 github.com 前缀**）。token 经 AssemblyMetadata `OnlineToken` 编译注入（GitHub secret `BAIHE_ONLINE_TOKEN`），Host 与 OnlineInstaller 两处 GetToken 都做 BOM(U+FEFF) 清洗——secret 混入 BOM 曾导致加速服务全量 401（v1.1.21 教训）。
+7. **镜像测速已成死代码**：UpdateService 里 mirrors.json 拉取/测速方法还在，但 `CheckForUpdateAsync` 固定返回加速直链，测速路径不可达（§13-A1）；编辑 mirrors.json 不再影响任何下载行为。
+8. **维基三方数据流**：`lib/wiki/*.ts`（前端内置兜底）↔ 仓库根 `wiki.json`（远程数据源，WikiService 按 raw/jsDelivr/ghproxy 回退拉取）↔ `wiki-site/`（GitHub Pages 网页版）。v1.1.25 移除农夫乐事后为 8 分类：login / commands / sit / skin / version / map / anticheat / faq。
+9. **内置游戏 = 1.21.8**（vanilla + fabric-loader-0.16.14），换内置版本跑 `scripts/update-bundled-game.ps1`；iss `[InstallDelete]` 负责 1.21.3 遗留清理并删除 `{app}\current_instance.txt`，配合 InstanceService 的已安装校验自动回退选择（v1.1.24 升级修复）。
+10. **单实例防多开 + 启动预热**（v1.1.9/11）：App.xaml.cs 命名 Mutex（第二实例激活已有窗口后退出自身）；OnStartup 预热 `LaunchService.EnsureLaunchOptions()` 把 `serverResourcePacks:true` 等关键选项写进 options.txt，保证玩家进服前已生效。
 
 ---
 
@@ -30,7 +38,8 @@
 - 三种登录方式：离线 / 微软正版（设备码）/ 第三方验证（Yggdrasil / LittleSkin）
 - Mod 管理（含中文名映射、图标提取）、光影管理（Iris shaderpacks）、存档备份/导入/恢复、截图浏览、游戏修复
 - 首页「最新动态」（拉取仓库 news.json，可远程更新公告）+ 服务器状态 + 更新横幅
-- **在线版安装器**（v1.1.11+，src/Baihe.OnlineInstaller）：40KB net48 WinForms，查最新版本 → 镜像测速择优 → 8 线程 Range 分块下载完整安装包 → 自动启动安装
+- **在线版安装器**（v1.1.11+，src/Baihe.OnlineInstaller）：40KB net48 WinForms，查最新版本（API 三源回退）→ 经自建加速服务 8 线程 Range 分块下载完整安装包（块级重试 ×3 → 失败自动降级单线程全量兜底）→ 自动启动安装向导
+- **两级式自动升级**（v1.1.23+）：主程序检查到新版本后，「下载更新」只经加速服务拉 40KB 在线安装器（`update.download` IPC）并自行退出，下载复杂度整体外移（详见 §7.8）
 - 内置聊天（WebView2 导航到外部 Element 聊天页，注入返回按钮与消息监控）
 - 系统托盘、主题切换（深/浅）、更新检查（镜像测速）、遥测上报、微信名收集、单实例防多开
 
@@ -50,19 +59,19 @@
 ```text
 Baihe.slnx                        # 解决方案：src/Baihe.Host + src/Baihe.OnlineInstaller（Core 已移除）
 src/
-├── Baihe.Host/                   # WPF 宿主进程（唯一 .NET 项目，v1.1.9 = 24 个服务文件）
+├── Baihe.Host/                   # WPF 宿主进程（.NET 10，v1.1.25 = 26 个服务文件）
 │   ├── App.xaml(.cs)             # 应用入口 + 单实例 Mutex（防多开，v1.1.9）+ 启动预热 options.txt（v1.1.11）
 │   ├── MainWindow.xaml(.cs)      # 主窗口：WebView2 初始化 + 全部 IPC 命令注册（partial 拆分: MainWindow.Chat.cs）
 │   ├── Chrome/TitleBar.xaml(.cs) # 原生标题栏 + 交通灯按钮
 │   ├── Ipc/                      # IpcMessage.cs + IpcRouter.cs（IPC 协议与路由）
 │   ├── Web/WebViewHost.cs        # WebView2 环境创建 + 虚拟主机映射
 │   ├── Models/                   # McAccount / OfflineAccount / GameInstance
-│   └── Services/                 # 25 个业务服务（+WikiService v1.1.15 拉取 wiki.json）
-├── Baihe.OnlineInstaller/        # 在线版安装器（v1.1.11+，.NET Framework 4.8 WinForms，独立构建，~40KB）
-│   ├── Program.cs                # 入口（AppVersion 常量 + --selftest 自检）
-│   ├── MainForm.cs               # 无边框自绘界面（mac 风格）+ 流程编排（查版本→测速→下载→启动安装）
-│   ├── UpdateService.cs          # GitHub API + mirrors.json 镜像测速择优（12 内置兜底）
-│   ├── Downloader.cs             # 8 线程 HTTP Range 分块下载 + 进度/取消/断点探测
+│   └── Services/                 # 26 个业务服务文件（v1.1.25 实数；25 静态类 + TrayService 实例类）
+├── Baihe.OnlineInstaller/        # 在线版安装器（v1.1.11+，net48 WinForms，独立构建 ~40KB，细节见 §7.8）
+│   ├── Program.cs                # 入口：AppVersion 常量 + --selftest / --download-test 自检模式
+│   ├── MainForm.cs               # 自绘深色界面 + 流程编排（查版本→分块下载→校验→运行安装向导）+ 速度/剩余时间 ETA
+│   ├── UpdateService.cs          # GitHub API 三源回退查版本（raw/ghproxy.net/ghfast.top）+ 固定加速 URL 构造 + token(BOM 清洗)
+│   ├── Downloader.cs             # Range 探测→8 线程分块(256KB 缓冲/预分配/SequentialScan/连接上限16/块级重试×3)→单线程全量兜底（两轮策略）
 │   └── SimpleJson.cs             # 极简 JSON 解析（不引第三方库，保持体积）
 └── Baihe.UI/                     # Svelte 5 前端（构建输出到 ../Baihe.Host/wwwroot）
     ├── vite.config.ts            # outDir: ../Baihe.Host/wwwroot，WebView2 兼容插件
@@ -73,15 +82,16 @@ src/
         ├── lib/                  # ipc.ts / router / theme / toast / Icon.svelte + icons/（14 个 svg）+ shaders.ts + wiki/
         └── pages/                # Home / Download / Settings / Tools / Login / Wiki(v1.1.10+)
 wiki.json                         # 维基远程数据源（v1.1.15+；scripts/generate-wiki-json.mjs 生成，直接编辑即更新维基）
-wiki-site/                        # 网页版维基（v1.1.15+，纯静态单页 + GitHub Pages，.github/workflows/pages.yml）
+site/                             # 官方网站（v1.1.26+ 开发中：纯静态单页，Pages 站点根；下载链接配置在 site/js/main.js 的 CONFIG 块）
+wiki-site/                        # 网页版维基（v1.1.15+，纯静态单页；Pages 部署为 /wiki/ 子路径，数据源根 wiki.json 由 workflow 复制进部署目录）
 PCL2-CE/                          # 上游 Plain Craft Launcher 2 CE 的 fork（仅参考，不参与构建）
 installer/                        # Inno Setup 安装脚本
 installer_resources/              # 开发期资源：.minecraft、jre、icon.ico、ChineseSimplified.isl
 installer_assets/                 # 安装向导图片（wizimage.bmp 等）
-scripts/                          # download-build / fork-rename / upload-minecraft-assets
+scripts/                          # download-build / fork-rename / upload-minecraft-assets / update-bundled-game / generate-wiki-json.mjs
 specs/                            # P0-theme-switching、P1-memory-recommendation（各含 spec/tasks/checklist）
 docs/                             # telemetry-api-guidelines.md、PROJECT_ANALYSIS.md
-news.json / mirrors.json          # 仓库根数据文件：首页公告 / 更新加速镜像列表（运行时远程拉取）
+news.json / mirrors.json          # 仓库根数据文件：首页公告（运行时拉取）/ ⚠️ mirrors.json 已成死配置（编辑不再生效，§13-A1）
 baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/删除）
 ```
 
@@ -104,7 +114,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 │         │   RegisterHostCommands()  所有命令在此注册                 │
 │         │        │                                                   │
 │         │   ┌────┴─────────────────────────────┐                    │
-│         │   │  Services/（23 静态服务 + Tray 实例）│                │
+│         │   │  Services/（25 静态类 + Tray 实例类）│              │
 │         │   └──────────────────────────────────┘                    │
 │  TrayService (NotifyIcon)   遥测/更新/认证 → 网络                    │
 └──────────────────────────────────────────────────────────────────────┘
@@ -134,7 +144,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 ### 4.1 状态与路由
 
 - **路由**：`lib/router.svelte.ts` 用 `$state` 维护 `current: PageKey`（home | download | settings | tools | login），无路由库，页面在 `App.svelte` 里 `{#if}` 条件渲染。聊天页不走路由，通过 `nav.external` IPC 让后端 `Navigate(url)`。
-- **主导航 4 项（本次新增调整）**：`navItems` = 启动 / **指南**（维基，本次新增）/ 设置 / 工具。**下载页已移出主导航**，入口改为 设置 → 开发者 →「版本下载」按钮（`router.navigate('download')`）；登录页不占导航，点侧边栏用户区进入。
+- **主导航 4 项（v1.1.10 起定型）**：`navItems` = 启动 / **指南**（维基）/ 设置 / 工具。**下载页不在主导航**，入口改为 设置 → 开发者 →「版本下载」按钮（`router.navigate('download')`）；登录页不占导航，点侧边栏用户区进入。
 - **Svelte 5 runes 约定**：在 .ts 里使用 runes 必须用 `.svelte.ts` 扩展名（router/theme/toast 都是如此）。
 - **单例 store**：router、theme、toast 均为模块级单例（class + `$state`）。
 - **入口**：`main.ts` 挂载前注册 `window.onerror` / `unhandledrejection` 全局错误捕获，出错时把加载屏替换为错误信息（避免白屏）。
@@ -149,8 +159,8 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | Sidebar.svelte | 240px 毛玻璃侧边栏：用户区 + 导航 + 版本号；监听 router 变化重载账户 | `auth.current`、`app.getVersion` | — |
 | WeChatDialog.svelte | 首次启动微信名收集弹窗（IPC 失败也弹） | `wechat.set` | — |
 | Icon.svelte | 图标组件（见 4.4） | — | — |
-| Home.svelte | 启动主页：实例卡片 + 启动按钮 + 快捷工具 + 新闻列表 + 服务器状态 + 更新横幅（**v1.1.13 已移除服务器选择下拉**） | `instance.current`、`auth.hasAccount`、`update.check`、`server.status`、`launch.start`、`news.list`、`open.url` | `launch.state`、`launch.started`、`launch.windowShown`、`launch.exited` |
-| Wiki.svelte | 玩家指南维基（本次新增）：分级导航 + 全文搜索 + 高亮 | —（内容为前端内置数据 lib/wiki/*.ts） | — |
+| Home.svelte | 启动主页：实例卡片 + 启动按钮 + 快捷工具 + 新闻列表 + 服务器状态 + 更新横幅（**v1.1.13 已移除服务器选择下拉**；横幅「立即更新」走两段式升级） | `instance.current`、`auth.hasAccount`、`update.check`、`update.download`（v1.1.23+）、`server.status`、`launch.start`、`news.list`、`open.url` | `launch.state`、`launch.started`、`launch.windowShown`、`launch.exited` |
+| Wiki.svelte | 玩家指南维基：分级导航 + 全文搜索 + 高亮 + 复制（select-text，8 分类 v1.1.25） | `wiki.get`（远程 wiki.json 优先，失败回退内置 lib/wiki/*.ts） | — |
 | Download.svelte | 版本下载 / Fabric 安装（开发者入口） | `version.list`、`instance.list`、`download.start`、`fabric.install` | `download.progress/complete/error`、`fabric.progress/complete/error` |
 | Settings.svelte | 账户/游戏/外观/关于/开发者 五分类设置（开发者需密码 `111125hj`） | `auth.current`、`app.getVersion`、`system.memory`、`update.check({force:true})`、`java.bundled`、`java.detect`、`settings.get`、`settings.set`、`auth.offline`（改名）、`open.url` | — |
 | Login.svelte | 三种登录方式 Tab（离线/微软/第三方） | `auth.setOffline`、`auth.msLogin`、`auth.msCancel`、`auth.thirdPartyLogin` | `auth.msDeviceCode`、`auth.msLoginResult` |
@@ -187,12 +197,12 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 
 ## 5. 后端架构（Baihe.Host）
 
-### 5.1 服务清单（Services/，全部核验 v1.1.9）
+### 5.1 服务清单（Services/，全部核验 v1.1.25；26 个文件）
 
 | 服务 | 行数(约) | 职责 | 关键点 |
 |---|---|---|---|
-| MainWindow.xaml.cs | 820 + Chat partial | 窗口 + WebView2 + **所有 IPC 命令注册** | 新增命令改这里（RegisterHostCommands）；聊天注入在 MainWindow.Chat.cs |
-| LaunchService | 1109 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控；含 CleanLauncherProfilesGameDir |
+| MainWindow.xaml.cs | 791 + Chat partial(166) | 窗口 + WebView2 + **所有 IPC 命令注册**（57 条命令 + IpcRouter 内置 ping） | 新增命令改这里（RegisterHostCommands）；聊天注入在 MainWindow.Chat.cs |
+| LaunchService | 982 | 启动管线（最大文件） | 版本 JSON 合并 / natives 提取 / classpath / JVM+Game 参数 / 进程监控；含 CleanLauncherProfilesGameDir；Launch 支持目标服务器覆盖参数（v1.1.10）；EnsureOptionsTxt 含 serverResourcePacks:true 并提供公开 EnsureLaunchOptions()（App 启动预热，v1.1.11） |
 | NbtHelper | 479 | Minecraft NBT 格式通用读写 | 大端序（BinaryPrimitives.*BigEndian）；servers.dat 未压缩 |
 | ServerListService | 99 | 自动把白鹤服务器加入 servers.dat | 启动游戏前调用；同 ip 条目自动改名「白鹤服务器」，幂等 |
 | DownloadService | 468 | 下载管线 | SHA1 校验 + 6 并发 + 进度推送；`.tmp` 临时文件校验后改名 |
@@ -201,23 +211,25 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | AuthService | 87 | 统一账户管理（缓存 + 持久化） | 单账户模式，account.json；RefreshIfExpired 只处理 Microsoft |
 | SettingsService | 204 | 用户设置 + 内存检测/推荐 | P/Invoke GlobalMemoryStatusEx；推荐算法见 §8.5 |
 | VersionService | 126 | Mojang 版本清单（24h 缓存） | 自建 HttpClient（注释里的 NetworkService 已随 Core 删除，注释过时） |
-| InstanceService | 168 | 扫描实例 + 当前实例选择 | GetMcDirectory() 4 级路径回溯；Fabric 实例优先 |
+| InstanceService | 165 | 扫描实例 + 当前实例选择 | GetMcDirectory() 4 级路径回溯；Fabric 实例优先；**v1.1.24 IsInstalled 收紧**（Fabric 子实例 parent jar 必须存在才算已安装），GetCurrentInstance 对未安装的选中项自动回退到最佳已安装实例 |
 | JavaHostService | 123 | 检测捆绑 JRE / 系统 Java | `java -version` 输出在 **stderr** |
 | FabricService | 131 | Fabric Loader 安装 | 版本 ID = `{gameVersion}-fabric`；走 DownloadVersionFromJson |
 | ServerStatusService | 54 | 服务器在线检测（TCP ping） | 3s 超时，地址从 Settings 动态读 |
-| ModService | 401 | Mod 列表/启停/删除 | **v1.1.8 增强：fabric.mod.json 元数据 + 图标提取（base64 data URL）+ 中文名映射表（14 个），均带 mtime/size 缓存**；启停 = 改 `.jar` ↔ `.jar.disabled`；**统一用全局 mods 目录（版本专属目录不被游戏加载，v1.1.2 修复）** |
+| ModService | 405 | Mod 列表/启停/删除 | **v1.1.8 增强：fabric.mod.json 元数据 + 图标提取（base64 data URL）+ 中文名映射表（14 个），均带 mtime/size 缓存**；v1.1.23+ 新增中文介绍映射 `ChineseDescMap`（mod id 精确 → displayName/id 模糊 → 原 description 三级回退）；启停 = 改 `.jar` ↔ `.jar.disabled`；**统一用全局 mods 目录（版本专属目录不被游戏加载，v1.1.2 修复）** |
 | SaveService | 280 | 存档备份/导入/恢复 | zip + 临时目录；导入按 level.dat 识别 |
 | ShaderService | 230 | 光影管理（v1.1.3+） | 扫描 shaderpacks/*.zip；启用状态读写 `.minecraft/config/iris.properties`（shaderPack= / enableShaders=） |
 | ToolService | 144 | 截图列表 / 打开文件夹 / 游戏修复 | 修复 = 完整性检查（报告型） |
 | TrayService | 144 | 系统托盘（WinForms NotifyIcon） | **唯一实例类**；三路图标加载兜底 |
-| UpdateService | 511 | GitHub Releases 更新检查 | **1h 结果缓存（cache/update_check.json）+ 10min 测速缓存 + `force` 参数强制刷新**；镜像列表自动更新（mirrors.json）+ 运行时测速选最快 |
+| UpdateService | 600 | GitHub Releases 更新检查 + 两段式升级支撑 | **1h 结果缓存（cache/update_check.json，含 CurrentVersion 一致性校验）+ `force` 强制刷新**；v1.1.18+ DownloadUrl 固定加速直链（BuildAcceleratedUrl=8091 `?token=`）；DownloadOnlineInstallerAsync 拉起 40KB 在线安装器（v1.1.23 两段式升级）；GetOnlineToken/CleanToken 做 BOM 清洗；**镜像测速（FetchMirrors/PickFastestMirror*/MeasureSpeedAsync）已是死代码**（§13-A1） |
 | TelemetryService | 175 | 遥测上报（每会话首次 + 服务端策略） | 见 §8.6 |
 | WeChatService | 68 | 微信名持久化（wechat.json） | 独立于账户 |
 | NewsService | 78 | 首页「最新动态」（v1.1.8+） | 拉取仓库 news.json（4s 超时）失败回退内置 3 条；远程增删公告无需发版 |
 | MinecraftRules | 67 | 版本 JSON rules 检查（v1.1.6+） | 统一 LaunchService(JsonNode) 与 DownloadService(JsonElement) 的 rules 过滤语义 |
 | FormatHelper | 15 | 字节大小格式化 | 被多处复用 |
+| ServerEntryService | 138 | 服务器条目增删读（servers.json，首启内置白鹤服务器） | v1.1.10 新增；**v1.1.13 移除 UI 下拉后前端已无 servers.* 调用，现为死功能**（QuickPlay 目标直接用 settings.ServerAddress/Port，§13-A2） |
+| WikiService | 69 | 维基远程数据源拉取（wiki.json，v1.1.15+） | raw → jsDelivr → ghproxy 三源回退，单源 5s 超时；全失败返回 null 由前端回退内置数据 |
 
-> 共 24 个服务文件（23 静态类 + TrayService 实例类）。相对文档 v1 新增：**ShaderService / NewsService / MinecraftRules**；TelemetryService 保留（v1 表格误删）。
+> 共 26 个服务文件（25 静态类 + TrayService 实例类）。相对文档 v2 新增：**ServerEntryService / WikiService**。
 
 ### 5.2 模型（Models/）
 
@@ -246,7 +258,8 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | ping | — | "pong" | 存活检测（IpcRouter 内置） |
 | window.close/minimize/maximize | — | true | 窗口控制（Dispatcher 封送） |
 | app.getVersion | — | 版本字符串 | 优先 FileVersion（Release 从 tag 注入），回退 AssemblyVersion（无硬编码） |
-| update.check | {force?} | UpdateInfo | GitHub Releases；**v1.1.5+ 有 1h 结果缓存，`force:true` 强制刷新**；失败静默返回无更新 |
+| update.check | {force?} | UpdateInfo | GitHub Releases；**1h 结果缓存（CurrentVersion 一致性校验），`force:true` 强制刷新**；失败先给过期缓存再静默无更新。**v1.1.18+ DownloadUrl 固定为加速直链（source="自建加速"），不再镜像测速** |
+| update.download | version 字符串 | {success,error?} | **v1.1.23+ 两段式升级**：经 8090 加速服务把 `BaiheOnlineSetup_v{ver}.exe`（约 40KB）下载到 %TEMP% 并启动它，500ms 后主程序自己 Shutdown，由在线安装器接管完整包下载与安装（流程见 §7.8） |
 | news.list | — | NewsItem[] | 首页最新动态（v1.1.8+）：拉取仓库 news.json，失败回退内置 |
 | wiki.get | — | WikiCategory[] | 玩家指南维基（v1.1.15+）：拉取仓库 wiki.json（可远程编辑），失败返回空（前端回退内置） |
 | version.list | typeFilter? | {latest, versions[]} | Mojang 清单（24h 缓存） |
@@ -260,7 +273,7 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | auth.thirdPartyLogin | {serverUrl,username,password} | {success,username,error} | 同步请求-响应 |
 | java.detect | — | 系统 Java 数组 | PATH 查找 |
 | java.bundled | — | {found,path,version} | 捆绑 JRE（含开发环境回溯） |
-| launch.start | {instanceId?, serverAddress?, serverPort?} | {success,processId,error} | 含账户检查 + 微软令牌刷新 + 遥测上报；**serverAddress/serverPort 可选覆盖 QuickPlay 目标（服务器列表选择，本次新增）** |
+| launch.start | {instanceId?, serverAddress?, serverPort?} | {success,processId,error} | 含账户检查 + 微软令牌刷新 + 遥测上报；serverAddress/serverPort 可选覆盖 QuickPlay 目标（v1.1.10；前端现不传，走 settings 默认值） |
 | launch.status | — | {state,message,processId} | 启动状态 |
 | download.start | versionId | {success,message} | 异步（Task.Run，不阻塞响应） |
 | download.status | — | {isDownloading,error} | 下载状态 |
@@ -268,10 +281,10 @@ baihe-launcher-analysis/          # 一次性的 HTML 分析快照（可忽略/�
 | fabric.loaders | gameVersion | {gameVersion,loaders[]} | 查询 Loader |
 | settings.get | — | LauncherSettings | 读取设置 |
 | settings.set | 部分字段对象 | LauncherSettings | 逐字段更新（有上下限钳制） |
-| server.status | {serverAddress?, serverPort?} | {online,latency,address,port} | 服务器状态（本次新增：可选覆盖目标服务器） |
-| servers.list | — | ServerEntry[] | 服务器列表（本次新增，servers.json，内置白鹤服务器） |
-| servers.add | {name,address,port} | {success,entry?,error} | 新增服务器（同地址同端口去重，本次新增） |
-| servers.remove | id | {success} | 删除服务器（内置默认条目不可删，本次新增） |
+| server.status | {serverAddress?, serverPort?} | {online,latency,address,port} | 服务器状态（v1.1.10：可选覆盖目标服务器） |
+| servers.list | — | ServerEntry[] | 服务器列表（servers.json，内置白鹤服务器）。⚠️ v1.1.13 后前端无调用方（死功能，§13-A2） |
+| servers.add | {name,address,port} | {success,entry?,error} | 新增服务器（同地址同端口去重）⚠️ 同上死功能 |
+| servers.remove | id | {success} | 删除服务器（内置默认条目不可删）⚠️ 同上死功能 |
 | mods.list | — | ModInfo[] | Mod 列表（含禁用；v1.1.8+ 含 iconDataUrl/chineseName/description） |
 | mods.toggle | fileName | {success,enabled} | 启停 Mod |
 | mods.delete | fileName | {success} | 删除 Mod |
@@ -336,7 +349,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
   → isFabric = mainClass 含 fabric/knot
   → GetLog4jConfigPath（logging.client.file.id → assets/log_configs/）
   → BuildJvmArgs + BuildGameArgs（手动拼，不解析 arguments.jvm/game）
-  → EnsureOptionsTxt（onboardAccessibility:false 跳过无障碍引导、joinedFirstServer:true、tutorialStep:none、lang:zh_cn、**serverResourcePacks:true 允许服务器资源包（本次新增）**）
+  → EnsureOptionsTxt（onboardAccessibility:false 跳过无障碍引导、joinedFirstServer:true、tutorialStep:none、lang:zh_cn、serverResourcePacks:true 允许服务器资源包〔v1.1.11〕；同逻辑另经 EnsureLaunchOptions() 在 App 启动时预热）
   → 写 launch_cmd.log（完整命令行）
   → Process.Start（javaw，UseShellExecute=false，WorkingDirectory=.minecraft，**APPDATA=.minecraft**）
   → PushEvent launch.started{processId}
@@ -347,7 +360,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 
 **启动参数要点**（改启动行为必读）：
 - 用户类型固定 `--userType msa`（注释：offline 会触发 "Unrecognized user type" 警告）。
-- QuickPlay：`majorVersion >= 21` 用 `--quickPlayMultiplayer host:port`，旧版用 `--server/--port`（主版本号从版本 ID 正则 `1\.(\d+)` 提取）。**本次新增：目标服务器可被 launch.start 的 serverAddress/serverPort 覆盖（服务器列表选择），未指定时用 settings 默认值**。
+- QuickPlay：`majorVersion >= 21` 用 `--quickPlayMultiplayer host:port`，旧版用 `--server/--port`（主版本号从版本 ID 正则 `1\.(\d+)` 提取）。目标服务器可被 launch.start 的 serverAddress/serverPort 覆盖（v1.1.10），未指定时用 settings.ServerAddress/Port 默认值。
 - Fabric 额外加 `-DFabricMcEmu= net.minecraft.client.main.Main`（**等号后有空格**，Fabric Loader 特有设计）。
 - 内存：`-Xmx` + `-Xmn`（新生代 = 15%）；log4j 防御 `-Dlog4j2.formatMsgNoLookups=true`；堆转储路径 MojangTricksIntelDrivers...。
 - `--accessToken` 直接透传；离线账户 AccessToken="offline-token"。
@@ -371,11 +384,45 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
   - authenticate → 无 selectedProfile 时取 availableProfiles[0] 并 refresh 绑定角色；clientToken 存入 `RefreshToken` 字段；`Password` 存入账户对象（**明文，见 §10 问题**）。
   - 预设服务器：LittleSkin `https://littleskin.cn/api/yggdrasil`。
 
-### 7.4 更新流程（UpdateService，v1.1.5+ 带缓存）
+### 7.4 更新检查流程（UpdateService，v1.1.18+ 固定加速直链）
 
-`GET https://api.github.com/repos/pkoiuu/mcbh/releases/latest`（15s 超时，带 UA）→ 解析 tag_name（去 v）、找 .exe asset 的 browser_download_url → **镜像列表自动更新**（并行拉取仓库 `mirrors.json`，失败用内置兜底列表）→ 对真实下载 URL **并行测速**（普通 GET 读前 512KB 计时，不用 Range——部分镜像不支持）选**最快**镜像 → 全部失败回退 GitHub 直链 → `Version` 比较 → 失败静默返回无更新。返回含 `DownloadSource`（加速源主机名）与 `DownloadSpeedMBps`（测速结果，前端展示）。
+1. `CheckForUpdateAsync(force)` 先读缓存 `cache/update_check.json`（TTL 1h，且要求缓存 CurrentVersion == 当前程序集版本——防升级后旧缓存误报横幅），非 force 命中即秒回。
+2. 未命中：`GET api.github.com/repos/pkoiuu/mcbh/releases/latest`（5s 超时）解析 tag_name；当前版本读 `Assembly.GetName().Version`（app.getVersion 走 FileVersion，Release 下两者都由 tag 注入一般一致）。
+3. **下载链接 = `BuildAcceleratedUrl(version)`**：`http://199.68.217.4:8091/github.com/pkoiuu/mcbh/releases/download/v{ver}/BaiheServer_Setup_v{ver}.exe?token={编译注入}`（8091 为浏览器可直接打开的 query-token 形式）。返回 speedMbps=0、source="自建加速"；**不再构造镜像、不再测速**。
+4. 失败兜底：优先返回过期缓存（allowStale，防误报「无更新」），否则静默 hasUpdate=false。
 
-**缓存（v1.1.5+）**：成功结果写入 `cache/update_check.json`（TTL 1h），测速结果有 10min 内存缓存；`update.check({force:true})`（设置页「检查更新」按钮）绕过结果缓存强制刷新。注意：**这里只用 `Assembly.GetName().Version`，而 app.getVersion 用 FileVersion——两处取版本的方式不同**（Release 下两者都由 tag 注入，一般一致）。
+### 7.8 两段式自升级与在线安装器（v1.1.11 新增项目，v1.1.23 起为主升级通道）
+
+```text
+主程序（Home 更新横幅「立即更新」）
+  → ipc('update.download', version)
+  → UpdateService.DownloadOnlineInstallerAsync(version)
+      GET http://199.68.217.4:8090/github.com/{owner}/{repo}/releases/download/v{ver}/BaiheOnlineSetup_v{ver}.exe
+      （8090 = header "token: {编译注入}"，支持断点续传；UseProxy=false 禁系统代理；30s 总超时）
+      写入 %TEMP%\BaiheOnlineSetup_v{ver}.exe
+  → Process.Start(exe)，Task.Delay(500ms) 后 Application.Current.Shutdown()
+在线安装器（MainForm 编排，net48 自绘深色界面）
+  → UpdateService.GetLatestAsync()：api.github.com → ghproxy.net → ghfast.top（仅查版本号，单源 8s）
+      BestUrl = http://199.68.217.4:8090/github.com/{owner}/{repo}/releases/download/v{ver}/BaiheServer_Setup_v{ver}.exe
+  → Downloader(candidates=[BestUrl], threads=8, authHeaderName="token", token)
+      探测：bytes=0-0（30s 超时）；206+Content-Range ⇒ 得总大小+Range 支持；200 ⇒ 该轮转单线程
+      多线程分块：ServicePointManager.DefaultConnectionLimit=16（net48 默认 2 是速度瓶颈）；
+        预分配 SetLength(total)；256KB 缓冲 + FileOptions.SequentialScan；
+        每块失败最多重试 3 次（1s*n 退避），块级重试不整包重来（v1.1.22）；
+        读停滞超时 60s（ReadWithStallTimeout，v1.1.17 加固）；HttpClient 总超时 5min；
+        结束校验 文件长度==total，不符抛 IOException → 记该线路失败触发上层重试（v1.1.19）
+      两轮策略：第 1 轮逐候选 URL 多线程 → 全部失败删临时文件进第 2 轮 forceSingle 单线程全量兜底
+        （GET 不带 Range 直接读到 EOF，最可靠）（v1.1.20）
+  → 成功后运行 BaiheServer_Setup_v{ver}.exe → Inno 向导接管（杀进程/迁移逻辑见 §9.4）
+自检命令：--selftest（验证 BestUrl 指向加速服务的完整安装包而非在线安装器 + 带 token probe 可达性 +
+          双不可达线路 stall 保护 <60s PASS；写 %TEMP%\baihe_selftest.log，退出码 0/1）
+         --download-test（真实下载全链路实测，写 %TEMP%\baihe_download_test.log）
+```
+
+**token 细节（v1.1.21 教训，改这里必读）**：
+- GetToken() 优先环境变量 `BAIHE_ONLINE_TOKEN`（本地调试），否则反射读 AssemblyMetadata("OnlineToken")（release.yml `-p:OnlineToken=$env:BAIHE_ONLINE_TOKEN` 注入，Host 与 OnlineInstaller 各注入一次，源码不含令牌）。
+- `CleanToken()` 必须 Trim + 去 U+FEFF/U+FFFE —— 曾因 GitHub secret 带 BOM 导致加速服务全量 401。
+- URL 必须保留 `github.com/` 原路径前缀（加速服务按路径转发）；换加速服务地址需同步改 Host UpdateService（AcceleratorBrowserBase/AcceleratorCliBase）与 OnlineInstaller UpdateService（AcceleratorHost）两处。
 
 ### 7.6 光影流程（ShaderService，v1.1.3+）
 
@@ -400,7 +447,7 @@ launch.start（MainWindow 先做账户检查：无账户→报错；微软→Ref
 | settings.json | LauncherSettings（9 字段，首启用内存推荐初始化） | SettingsService |
 | account.json | McAccount（**明文 JSON，含第三方密码**） | AccountStore |
 | wechat.json | 微信名 | WeChatService |
-| servers.json | 服务器列表 ServerEntry[]（本次新增，首启用内置白鹤服务器） | ServerEntryService |
+| servers.json | 服务器列表 ServerEntry[]（首启用内置白鹤服务器；前端无 UI 入口，死功能 §13-A2） | ServerEntryService |
 | cache/version_manifest.json | Mojang 清单（24h） | VersionService |
 | cache/update_check.json | 更新检查结果（1h，v1.1.5+） | UpdateService |
 | current_instance.txt | 选中实例 ID | InstanceService |
@@ -440,33 +487,36 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 ### 9.3 Release（.github/workflows/release.yml）
 
 打 tag `v*` → windows-latest：
-1. **五路并行准备**：① jlink 构建 JRE（20 模块，`--compress=2 --strip-debug`）② 下载 WebView2 离线安装包（fwlink）③ `gh release download v1.0-assets --pattern minecraft.7z` 解压出 .minecraft ④ dotnet restore ⑤ pnpm install + build（前台）。
-2. `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:PublishTrimmed=false -p:AssemblyVersion=$version -p:FileVersion=$version`（**版本号从 tag 注入**：v1.1.9 → 1.1.9，`-m` 多进程 + `--no-restore`）。
-3. 复制 icon.ico、fabric-installer.jar → dist/launcher；信息性步骤校验 dist 内容（wwwroot/jre/.minecraft/mods/.fabric 等）。
-4. `ISCC.exe /DMyAppVersion=$version installer\baihe_installer.iss`（Inno Setup 6）。
-5. softprops/action-gh-release 上传 `dist/BaiheServer_Setup_v*.exe`（**ASCII 文件名**，GitHub runner 上中文名会丢失；安装包显示名仍为「白鹤服务器启动器」）。
+1. **并行准备**：① jlink 构建 JRE（20 模块，`--compress=2 --strip-debug`）② 下载 WebView2 离线安装包（fwlink）③ `gh release download v1.0-assets --pattern minecraft.7z` 解压出 .minecraft ④ dotnet restore ⑤ pnpm install + build ⑥ **dotnet publish src/Baihe.OnlineInstaller → dist\online，`-p:OnlineToken=$onlineToken`**（secrets.BAIHE_ONLINE_TOKEN；空值也可编译，仅本地调试走环境变量）。
+2. `dotnet publish src/Baike.Host/Baihe.Host.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:PublishTrimmed=false -p:AssemblyVersion=$version -p:FileVersion=$version -p:OnlineToken=$env:BAIHE_ONLINE_TOKEN`（版本号从 tag 注入；**OnlineToken 同步注入 Host 程序集**供两段式升级的 GetOnlineToken 读取）。
+3. 复制 icon.ico、fabric-installer.jar → dist/launcher；信息性步骤校验 dist 内容。
+4. `ISCC.exe /DMyAppVersion=$version installer\baihe_installer.iss`（Inno Setup 6）产出完整安装包；随后 `Copy dist\online\BaiheOnlineSetup.exe → dist\BaiheOnlineSetup_v$version.exe`。
+5. softprops/action-gh-release 上传 **两个资产**：`dist/BaiheServer_Setup_v*.exe`（完整安装包）+ `dist/BaiheOnlineSetup_v*.exe`（在线安装器）（**ASCII 文件名**；主程序与在线安装器都靠 tag→exeName 直接构造下载 URL，不走 assets 遍历，见 §7.8 / §10-22）。
+6. 另有独立工作流 **pages.yml**（Deploy Official Site）：push 到 main 且触碰 site/** 或 wiki 相关路径时自动部署——官网（site/）为站点根 https://pkoiuu.github.io/mcbh/ ，网页版维基迁至 /wiki/ 子路径（wiki-site/index.html + 根 wiki.json 副本），news.json 复制到站点根供官网公告区与启动器共用。
 
 > .minecraft（约 1.3GB）不进 git，存于 release asset `v1.0-assets`，更新游戏文件后跑 `scripts/upload-minecraft-assets.ps1` 重新上传（7z -mx=9，排除 logs/crash-reports/downloads/servers.dat_old 等）。
 > CI 与 Release 均已加 **pnpm store / node_modules 与 NuGet 缓存**（actions/cache，按 lock/csproj 哈希做 key）。
 
 ### 9.4 安装器（installer/baihe_installer.iss）
 
-- 安装目录 `%LOCALAPPDATA%\BaiheServer`，`PrivilegesRequired=lowest`（免管理员）；默认版本宏 `MyAppVersion "1.1.9"`（Release 用 /D 覆盖）。
+- 安装目录 `%LOCALAPPDATA%\BaiheServer`，`PrivilegesRequired=lowest`（免管理员）；默认版本宏 `MyAppVersion "1.1.25"`（Release 用 /D 覆盖；发新版需同步 Host csproj / OnlineInstaller Program.AppVersion / 此处三处版本号，见 §13-A4）。
 - **升级检测**：固定 AppId（`{8F2B7A3C-...}`）+ UsePreviousAppDir。
 - **升级/安装前杀进程**：`InitializeSetup` / `PrepareToInstall` / `InitializeUninstall` 三重检查 `tasklist` + `taskkill /T /F`（含 WebView2 子进程），用户可取消；PrepareToInstall 最多重试 3 次。
 - **文件分层**：
-  - 启动器本体 `dist\launcher\*` 排除 jre、WebView2 安装包、`settings.json`、`account.json`、`current_instance.txt`、`*.log`、`debug-*.txt`、`cache\*`、`Baihe.exe.WebView2\*`（**升级保留用户配置**）。
+  - 启动器本体 `dist\launcher\*` 排除 jre、WebView2 安装包、`settings.json`、`account.json`、`current_instance.txt`、`*.log`、`debug-*.txt`、`cache\*`、`Baihe.exe.WebView2\*`（**升级保留用户配置**；current_instance.txt 在 [InstallDelete] 一并删除——v1.1.24 升级后强制重选实例的修复）。
   - `.minecraft\versions|libraries|assets|mods|shaderpacks` 始终覆盖（ignoreversion；mods/shaderpacks 只更新同名文件，用户自加的不受影响）。
   - `options.txt`、`servers.dat`、`config\*`、`launcher_profiles.json` 用 `onlyifdoesntexist uninsneveruninstall`（首装写入、升级不覆盖、卸载保留）。
-  - **[InstallDelete]（v1.1.6+）**：升级时清理旧版内置版本目录（`versions\1.21.3`、`fabric-loader-0.16.14-1.21.3`）与旧版 1.21.3/1.21.2 模组文件（防新老版本模组共存崩溃）——以后换内置 MC 版本需同步维护此段。
+  - **[InstallDelete]**：升级时清理旧版内置版本目录（`versions\1.21.3`、`fabric-loader-0.16.14-1.21.3`；当前内置为 **1.21.8**）、旧版 1.21.3/1.21.2 通配与精确文件名模组（防新老版本模组共存崩溃）、以及 `{app}\current_instance.txt`（配合 InstanceService 已安装校验自动回退到 1.21.8 实例，v1.1.24）——**换内置 MC 版本需同步维护此段**（配套脚本 scripts/update-bundled-game.ps1）。
 - **卸载保留**用户数据（saves/options.txt/screenshots/config 等），只删 logs/crash-reports/downloads。
 - [Run] 检测 WebView2（注册表 `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`）未装则静默安装；快捷方式用 `{userdesktop}`（lowest 权限下 commondesktop 不可写）。
 
 ### 9.5 脚本（scripts/）
 
 - `download-build.ps1`：镜像（ghfast.top > ghproxy.net > gh-proxy.com > ghproxy.link > 直连）下载 CI 的 `latest/baihe-build.zip`，解压部署到 `src/Baihe.Host/bin/CI/...` 并启动（本地体验 CI 构建）。
-- `fork-rename.ps1`：把 PCL.Core fork 成 Baihe.Core 的重命名/裁剪脚本（**本次重构已废弃 Core，此脚本基本不再用**）。
+- `fork-rename.ps1`：把 PCL.Core fork 成 Baihe.Core 的重命名/裁剪脚本（Core 已移除，基本不再用）。
 - `upload-minecraft-assets.ps1`：打包 installer_resources/.minecraft 为 minecraft.7z 并上传到 `v1.0-assets` release。
+- `update-bundled-game.ps1 [-GameVersion 1.21.8]`：一键重建内置游戏 —— Mojang manifest 下 vanilla 版本 + Fabric Meta 装 loader + Modrinth API 装模组，写入 installer_resources/.minecraft（含 SHA1 校验、旧版本目录清理）；完成后仍需 upload-minecraft-assets.ps1 重传 minecraft.7z，并同步维护 iss [InstallDelete] 的旧版本迁移条目。
+- `generate-wiki-json.mjs`：从 `src/Baihe.UI/src/lib/wiki/*.ts` 生成仓库根 `wiki.json`（维基免发版更新的生成端；也可手工直接编辑 wiki.json）。
 
 ---
 
@@ -493,7 +543,10 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 19. **单实例 Mutex 名称硬编码**（App.xaml.cs `BaiheServerLauncher_SingleInstance_Mutex_8F2B7A3C`）与 Inno AppId 前缀一致；改名/换 AppId 时两者要同步。
 20. **光影只认 `.minecraft/mods`（全局）**：ModService 明确注释版本专属 mods 目录不被游戏加载（v1.1.2 修复）；ShadersPanel 提示需启用 Iris mod 且重启游戏生效。
 21. **工具页 Tab 数据按需加载**（v1.1.9）：mods/screenshots 首次进入才拉取且带 `loaded` 缓存标志（防切 tab 卡顿），刷新按钮强制重拉——新增 Tab 时照此模式。
-22. **Release 多 .exe 资产的匹配坑（v1.1.12）**：v1.1.11 起 release 同时含 `BaiheOnlineSetup_vX.Y.Z.exe`（在线安装器）与 `BaiheServer_Setup_vX.Y.Z.exe`（完整安装包），GitHub API assets 数组按名称排序时**在线安装器排在前面**，两处 `.exe` 匹配（主程序 UpdateService 与在线安装器 UpdateService）若取第一个会**下载到在线安装器**——必须在匹配时排除 `OnlineSetup`/`BaiheOnline`，只匹配完整安装包。在线安装器支持 `--selftest` 无界面自检（写 %TEMP%\baihe_selftest.log，退出码 0/1）。
+22. **Release 多 .exe 资产的匹配坑（v1.1.12）**：v1.1.11 起 release 同时含 `BaiheOnlineSetup_vX.Y.Z.exe`（在线安装器）与 `BaiheServer_Setup_vX.Y.Z.exe`（完整安装包），GitHub API assets 数组按名称排序时**在线安装器排在前面**，两处 `.exe` 匹配（主程序 UpdateService 与在线安装器 UpdateService）若取第一个会**下载到在线安装器**——必须在匹配时排除 `OnlineSetup`/`BaiheOnline`，只匹配完整安装包。在线安装器支持 `--selftest` 无界面自检（写 %TEMP%\baihe_selftest.log，退出码 0/1）。（现状注：v1.1.18+ 之后两侧都不再遍历 assets 数组，而是由 tag_name 直接构造 exeName，本坑已被结构性规避；未来新增其它 exe 资产时仍需留意匹配。）
+23. **加速服务地址双项目硬编码**：`199.68.217.4:8090/8091` 同时存在于 Host `Services/UpdateService.cs`（AcceleratorBrowserBase/AcceleratorCliBase）与 OnlineInstaller `UpdateService.cs`（AcceleratorHost）——换地址必须两处同步；header 名固定 `token`（8090）/query `?token=`（8091）；URL 必须保留 `github.com/` 前缀；协议是 http 非 https（明文传输 token，§13-A3）。
+24. **csproj 手动列文件的适用范围**：Host 项目 `EnableDefaultCompileItems/PageItems=false`（36 个 `<Compile Include>` 全手动）；OnlineInstaller 是常规 SDK net48 项目用默认 glob，新增 .cs 无需登记。
+25. **发版三处版本号手动同步**：Host csproj AssemblyVersion/FileVersion ↔ OnlineInstaller `Program.AppVersion` ↔ iss `#define MyAppVersion`（v1.1.25 三处一致）——漏一处在两段式升级里会导致在线安装器资产名对不上而 404。
 
 ---
 
@@ -541,7 +594,7 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 
 ---
 
-## 13. 已知问题与改进建议（按优先级，核验至 v1.1.9）
+## 13. 已知问题与改进建议（按优先级；1~19 核验至 v1.1.9，A1~A5 为 v1.1.25 追加核验）
 
 **高优先级（正确性/安全）**：
 1. 第三方密码明文存储（account.json）→ 用 Windows DPAPI（`ProtectedData`）加密（仍未处理）。
@@ -553,7 +606,7 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 7. ~~维基文字不能复制 / 搜索框文字错位~~ **已修复（v1.1.11）**：Wiki 根容器加 select-text；搜索框 input 改 h-full/min-w-0/flex-1 垂直对齐。
 8. ~~最新动态不更新~~ **已修复（v1.1.11）**：NewsService 多源回退（raw → jsDelivr → ghproxy），news.json 同步 v1.1.10 内容。
 9. ~~拒绝服务器资源包~~ **已修复（v1.1.10+11）**：EnsureOptionsTxt 写 serverResourcePacks:true + App 启动预热 EnsureLaunchOptions()；初始 options.txt 已加字段（随下次 minecraft.7z 打包生效）。
-10. **在线安装器**（v1.1.11+）：net48 WinForms 40KB，不支持断点续传的服务器回退单线程；镜像测速仅测速下载 URL 前缀。
+10. ~~在线安装器早期形态~~ 已演进为固定加速直链 + 两轮降级策略 + selftest 自检（§7.8）；原「镜像测速仅测前缀」机制已随加速体系废弃。
 
 **中优先级（工程化）**：
 11. 静态服务静态状态仍普遍（v1.1.6 起部分服务已加锁/并发集合，但 Auth/Launch 等仍是裸 static 字段）→ 逐步收敛。
@@ -568,6 +621,14 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 18. `saves.restore` 的旧目录改名逻辑与卸载保留策略需在 UI 上说明。
 19. 光影仅 zip 扫描，不支持目录型/展开型光影包（Iris 也支持文件夹式 shaderpack）；shaderpacks 子目录会被漏列。
 
+**追加核验发现（2026-08-26，基于 v1.1.25 源码）**：
+
+A1. **镜像测速死代码**：UpdateService 的 FetchMirrorsAsync / PickFastestMirrorCachedAsync / PickFastestMirrorAsync / MeasureSpeedAsync / SpeedCache 及 mirrors.json 相关常量在当前调用图不可达（CheckForUpdateAsync 直接 BuildAcceleratedUrl）——**编辑 mirrors.json 不再影响任何下载行为**。建议整体删除，或改造为「加速服务故障时的 fallback 线路」。
+A2. **servers.* 死功能**：ServerEntryService（138 行）与 `servers.list/add/remove` IPC 注册正常，但前端 grep 零调用（v1.1.13 移除下拉后未恢复）。launch.start 的 serverAddress/serverPort 覆盖参数保留可用，QuickPlay 目标实际来自 settings.ServerAddress/Port。
+A3. **加速服务单点 + 明文 HTTP**：IP 直连无域名、token 明文传输、Downloader 只有同一 BaseUrl 一个候选——服务宕机 = 无法更新无法在线安装；建议加 HTTPS/域名与至少一条 fallback 候选。
+A4. **发版三处版本号手动同步**：Host csproj ↔ OnlineInstaller Program.AppVersion ↔ iss #define（踩坑 25）。
+A5. 老问题复核（v1.1.25 未变）：第三方密码明文存 account.json、ThirdPartyAuthService.Refresh() 死代码、开发者密码前端硬编码（111125hj）、instance.current 后端仍可能 null 解引用。
+
 ---
 
 ## 14. 快速定位表（改什么 → 看哪里）
@@ -576,7 +637,7 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 |---|---|
 | 加 IPC 命令 | MainWindow.xaml.cs RegisterHostCommands + Services/ + ipc.ts |
 | 玩家指南/维基内容 | src/Baihe.UI/src/lib/wiki/*.ts（按章节拆分）+ pages/Wiki.svelte |
-| 服务器列表/QuickPlay 目标 | ServerEntryService + Home.svelte（服务器下拉）+ launch.start 参数 |
+| QuickPlay 目标地址 | SettingsService.LauncherSettings.ServerAddress/Port + LaunchService.Launch(serverAddress?, serverPort?)（servers.json/ServerEntryService 为无 UI 死功能） |
 | 启动参数/QuickPlay/内存 | LaunchService.BuildJvmArgs / BuildGameArgs |
 | 下载逻辑/并发/校验 | DownloadService |
 | 登录（微软/第三方/离线） | MicrosoftAuthService / ThirdPartyAuthService / AuthService |
@@ -591,6 +652,10 @@ push/PR → windows-latest：setup .NET 10 + Node 22 + pnpm 11 → 并行（pnpm
 | 版本号 | csproj + tag + iss /DMyAppVersion |
 | 聊天页行为 | MainWindow InjectBackButtonAsync / InjectChatMonitorScriptAsync |
 | 防多开/单实例 | App.xaml.cs Mutex |
+| 更新横幅/两级式自升级 | UpdateService（check/download.download）+ Home.svelte + 在线安装器整个子项目（§7.8） |
+| 加速服务/token/下载多线程 | Host UpdateService.BuildAcceleratedUrl·DownloadOnlineInstallerAsync；OnlineInstaller.UpdateService.GetToken/CleanToken + Downloader.cs |
+| 维基内容更新（免发版） | 编辑 lib/wiki/*.ts → `node scripts/generate-wiki-json.mjs` 生成 wiki.json（或手编），网页版同步 wiki-site/ |
+| 内置游戏更换 | scripts/update-bundled-game.ps1 → upload-minecraft-assets.ps1 → iss [InstallDelete] 迁移条目 |
 
 ---
 
