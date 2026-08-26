@@ -191,6 +191,47 @@ jobs:
           Copy-Item installer_resources\icon.ico dist\launcher\ -Force
           Copy-Item fabric-installer.jar dist\launcher\ -Force
 
+      # ===== 增量更新支持：清单(必产) + 相对上一正式版的差量补丁(可能跳过) =====
+      # 上一版检索范围 = 非预发布;失败仅告警,不影响本安装包发布
+      - name: Generate update manifest & patch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          New-Item -ItemType Directory -Force -Path .temp | Out-Null
+          $pm = $null
+          try {
+            $rels = gh api 'repos/pkoiuu/mcbh/releases?per_page=30' --jq '.[] | select(.draft == false)' | ConvertFrom-Json
+            foreach ($r in @($rels)) {
+              if ($r.prerelease -eq $true) { continue }
+              if ($r.tag_name -eq "${{ github.ref_name }}") { continue }
+              $hasM = @($r.assets | Where-Object { $_.name -like 'BaiheManifest_*.json' }).Count -gt 0
+              if (-not $hasM) { continue }
+              Write-Host "Prev stable manifest found on: $($r.tag_name)"
+              gh release download $r.tag_name --pattern 'BaiheManifest_*.json' --dir .temp --clobber
+              $pm = Get-ChildItem .temp -Filter 'BaiheManifest_*.json' | Select-Object -First 1
+              break
+            }
+          } catch { Write-Host "WARN: search prev releases failed: $_" }
+          if (-not $pm) { Write-Host 'No prev stable manifest -> this release produces manifest only (incremental starts next release)' }
+          Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path .temp\patch_stage | Out-Null
+          Copy-Item dist\launcher\* .temp\patch_stage\ -Recurse -Force
+          if (Test-Path dist\.minecraft) { Copy-Item dist\.minecraft .temp\patch_stage\.minecraft -Recurse -Force }
+          $genArgs = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'scripts/generate-update-patch.ps1',
+            '-CurrentDir', '.temp/patch_stage',
+            '-Version', $tagNoV,
+            '-OutputDir', 'dist'
+          )
+          if ($pm) { $genArgs += @('-PrevManifestPath', $pm.FullName) }
+          & pwsh @genArgs
+          Write-Host "generate-update-patch exit code: $($LASTEXITCODE) (0=patch produced, 2=manifest-only)"
+          Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
+
       # ===== 验证打包内容完整性 (信息性，不阻断构建) =====
       - name: Verify package contents
         run: |
@@ -233,6 +274,8 @@ jobs:
           files: |
             dist/BaiheServer_Setup_*.exe
             dist/BaiheOnlineSetup_v*.exe
+            dist/BaiheManifest_v*.json
+            dist/BaihePatch_v*.zip
           generate_release_notes: true
           body: |
             ## 白鹤服务器启动器 v${{ github.ref_name }}

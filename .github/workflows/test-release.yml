@@ -177,6 +177,8 @@ jobs:
               -p:AssemblyVersion=$fileVersion `
               -p:FileVersion=$fileVersion `
               -p:OnlineToken=$env:BAIHE_ONLINE_TOKEN `
+              -p:AppVersionOverride=$tagNoV `
+              -p:ChannelOverride=test `
               -o dist\launcher -m --no-restore
           } else {
             dotnet publish src/Baihe.Host/Baihe.Host.csproj `
@@ -186,6 +188,8 @@ jobs:
               -p:PublishTrimmed=false `
               -p:AssemblyVersion=$fileVersion `
               -p:FileVersion=$fileVersion `
+              -p:AppVersionOverride=$tagNoV `
+              -p:ChannelOverride=test `
               -o dist\launcher -m --no-restore
           }
 
@@ -194,6 +198,52 @@ jobs:
         run: |
           Copy-Item installer_resources\icon.ico dist\launcher\ -Force
           Copy-Item fabric-installer.jar dist\launcher\ -Force
+
+      # ===== 增量更新支持：清单(必产) + 相对上一测试版的差量补丁(可能跳过) =====
+      # 上一版检索范围 = 预发布(test 渠道);失败仅告警,不影响本测试包发布
+      - name: Generate update manifest & patch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tagNoV = "${{ github.ref_name }}" -replace '^v', ''
+          New-Item -ItemType Directory -Force -Path .temp | Out-Null
+          $prevFound = $false
+          try {
+            $rels = gh api 'repos/pkoiuu/mcbh/releases?per_page=30' --jq '.[] | select(.draft == false)' | ConvertFrom-Json
+            foreach ($r in @($rels)) {
+              if ($r.prerelease -ne $true) { continue }
+              if ($r.tag_name -eq "${{ github.ref_name }}") { continue }
+              $hasM = @($r.assets | Where-Object { $_.name -like 'BaiheManifest_*.json' }).Count -gt 0
+              if (-not $hasM) { continue }
+              Write-Host "Prev test manifest found on: $($r.tag_name)"
+              gh release download $r.tag_name --pattern 'BaiheManifest_*.json' --dir .temp --clobber
+              $prevFound = $true
+              break
+            }
+          } catch { Write-Host "WARN: search prev releases failed: $_" }
+          # 组合树: launcher 根文件 + .minecraft 子树
+          Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path .temp\patch_stage | Out-Null
+          Copy-Item dist\launcher\* .temp\patch_stage\ -Recurse -Force
+          if (Test-Path dist\.minecraft) { Copy-Item dist\.minecraft .temp\patch_stage\.minecraft -Recurse -Force }
+          $argPrev = ''
+          if ($prevFound) {
+            $pm = Get-ChildItem .temp -Filter 'BaiheManifest_*.json' | Select-Object -First 1
+          }
+          $genArgs = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'scripts/generate-update-patch.ps1',
+            '-CurrentDir', '.temp/patch_stage',
+            '-Version', $tagNoV,
+            '-OutputDir', 'dist'
+          )
+          if ($pm) { $genArgs += @('-PrevManifestPath', $pm.FullName) }
+          & pwsh @genArgs
+          $code = $LASTEXITCODE
+          Write-Host "generate-update-patch exit code: $code (0=patch produced, 2=manifest-only)"
+          Remove-Item -Recurse -Force .temp\patch_stage -ErrorAction SilentlyContinue
 
       # ===== 编译 Inno Setup 安装包 =====
       - name: Build installer with Inno Setup
@@ -221,6 +271,8 @@ jobs:
           files: |
             dist/BaiheServer_Setup_v*-test*.exe
             dist/BaiheOnlineSetup_v*-test*.exe
+            dist/BaiheManifest_v*-test*.json
+            dist/BaihePatch_v*-test*.zip
           generate_release_notes: true
           body: |
             ## ⚠️ 内部测试构建 — ${{ github.ref_name }}

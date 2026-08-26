@@ -63,6 +63,10 @@
     releaseNotes: string
     downloadSpeedMBps?: number
     downloadSource?: string
+    // 增量补丁（后端对 BaihePatch_v{当前}_to_{最新}.zip 资产精确匹配后填充）
+    patchAvailable?: boolean
+    patchUrl?: string | null
+    patchSizeBytes?: number
   }
 
   // 实例状态
@@ -87,6 +91,61 @@
   // 更新检查
   let updateInfo = $state<UpdateInfo | null>(null)
   let updateDismissed = $state(false)
+
+  // 增量补丁状态 — null=未开始/未就绪;0-100 下载中;100=已暂存待重启
+  let patchPct = $state<number | null>(null)
+  let patchStaged = $state(false)
+
+  /** 发起增量更新（后端后台下载校验，进度走 patch.progress 推送） */
+  async function handlePatchUpdate(): Promise<void> {
+    if (patchPct !== null) return
+    try {
+      const r = await ipc<{ success: boolean; error?: string }>('update.patch')
+      if (r.success) {
+        patchPct = patchPct ?? 0
+      } else {
+        toast.error(r.error || '无法启动增量更新')
+      }
+    } catch {
+      toast.error('无法启动增量更新')
+    }
+  }
+
+  /** 重启应用补丁（主程序退出 → apply 脚本换文件 → 自动重启新版） */
+  async function handlePatchRestart(): Promise<void> {
+    try {
+      await ipc('update.patchRestart')
+      patchStaged = false
+    } catch {
+      toast.error('重启失败，可改用完整安装包更新')
+    }
+  }
+
+  function fmtMB(bytes?: number): string {
+    if (!bytes || bytes <= 0) return ''
+    return ' · 约 ' + (bytes / 1048576).toFixed(1) + ' MB'
+  }
+
+  // patch.* 推送订阅 — 挂载即注册，卸载时清理
+  $effect(() => {
+    const offProgress = on<{ percent: number; receivedMB: number; totalMB: number }>(
+      'patch.progress',
+      (d) => { patchPct = d.percent }
+    )
+    const offComplete = on<{ files: number; target: string }>(
+      'patch.complete',
+      () => { patchPct = 100; patchStaged = true; toast.success('增量包已就绪，重启即可完成更新') }
+    )
+    const offError = on<{ error: string }>(
+      'patch.error',
+      (d) => {
+        patchPct = null
+        patchStaged = false
+        toast.error(d.error || '增量更新失败，请改用完整安装')
+      }
+    )
+    return () => { offProgress(); offComplete(); offError() }
+  })
 
   /** 快捷工具列表 */
   const tools = [
@@ -291,28 +350,76 @@
         <Icon name="info" size={20} class="text-blue-400 shrink-0" />
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-[var(--foreground)]">发现新版本 v{updateInfo.latestVersion}</div>
-          <div class="text-[12px] text-[var(--muted-foreground)]">
-            当前版本 v{updateInfo.currentVersion} · 升级不会影响游戏设置和存档
-            {#if updateInfo.downloadSource && updateInfo.downloadSpeedMBps && updateInfo.downloadSpeedMBps > 0}
-              <span class="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-400">
-                加速源 {updateInfo.downloadSource} · {updateInfo.downloadSpeedMBps.toFixed(1)} MB/s
-              </span>
-            {/if}
-          </div>
+          {#if patchPct !== null && !patchStaged}
+            <!-- 增量包下载进度条（原位显示） -->
+            <div class="mt-1.5 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-[var(--accent)]">
+              <div
+                class="h-full rounded-full bg-blue-500 transition-[width] duration-300"
+                style="width: {Math.max(4, patchPct ?? 0)}%"
+              ></div>
+            </div>
+            <div class="mt-1 text-[11px] text-[var(--muted-foreground)]">
+              正在下载增量更新包… {patchPct ? `${patchPct.toFixed(0)}%` : ''}
+            </div>
+          {:else}
+            <div class="text-[12px] text-[var(--muted-foreground)]">
+              当前版本 v{updateInfo.currentVersion} · 升级不会影响游戏设置和存档
+              {#if updateInfo.downloadSource && updateInfo.downloadSpeedMBps && updateInfo.downloadSpeedMBps > 0}
+                <span class="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-400">
+                  加速源 {updateInfo.downloadSource} · {updateInfo.downloadSpeedMBps.toFixed(1)} MB/s
+                </span>
+              {/if}
+            </div>
+          {/if}
         </div>
-        <button
-          type="button"
-          class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
-          onclick={async () => {
-            try {
-              await ipc('update.download', updateInfo.latestVersion)
-            } catch {
-              toast.error('无法启动更新下载')
-            }
-          }}
-        >
-          下载更新
-        </button>
+
+        {#if patchStaged || (updateInfo.patchAvailable && patchPct === 100)}
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-green-600 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
+            onclick={handlePatchRestart}
+          >
+            重启完成更新
+          </button>
+        {:else if updateInfo.patchAvailable}
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96] disabled:opacity-60"
+            disabled={patchPct !== null && patchPct < 100}
+            onclick={handlePatchUpdate}
+          >
+            增量更新{fmtMB(updateInfo.patchSizeBytes)}
+          </button>
+          <button
+            type="button"
+            class="shrink-0 text-[12px] text-[var(--muted-foreground)] underline-offset-2 transition-[opacity] hover:opacity-70 hover:underline"
+            onclick={async () => {
+              try {
+                await ipc('update.download', updateInfo!.latestVersion)
+              } catch {
+                toast.error('无法启动更新下载')
+              }
+            }}
+            title="完整安装包更新（体积较大，作为兜底）"
+          >
+            完整包
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-blue-500 px-4 py-2 text-[13px] font-medium text-white transition-[filter] hover:brightness-[0.96]"
+            onclick={async () => {
+              try {
+                await ipc('update.download', updateInfo.latestVersion)
+              } catch {
+                toast.error('无法启动更新下载')
+              }
+            }}
+          >
+            下载更新
+          </button>
+        {/if}
+
         <button
           type="button"
           class="shrink-0 text-[var(--muted-foreground)] transition-[opacity] hover:opacity-70"
