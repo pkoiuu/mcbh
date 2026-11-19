@@ -13,7 +13,7 @@ namespace Baihe.OnlineInstaller
     internal static class Program
     {
         /// <summary>正式构建的回退版本号 — 与 Baihe.Host csproj / iss 同步维护</summary>
-        private const string FallbackVersion = "1.1.25";
+        private const string FallbackVersion = "1.1.26";
 
         /// <summary>
         /// 当前版本 — 正式构建 = FallbackVersion 常量；
