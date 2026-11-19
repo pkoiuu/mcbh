@@ -53,7 +53,13 @@ LZMANumBlockThreads=2
 LZMAUseSeparateProcess=yes
 
 ; 界面 — 路径相对于 .iss 文件目录
+; 视觉：现代简约企业风（与在线安装器深色气质一致）。侧图=深蓝底 #1E2A3A + 白鹤首标
+; （前额红裸皮 + 翼尖黑飞羽），由 .temp/wizard/drawwiz 程序化绘制。
+; 兼容性：WizardStyle=modern 与自定义 bmp 仅用 Inno 6 全版本兼容指令（CI runner 预装
+; InnoSetup 6.7.1、本地便携版 6.7.3 均验证可用）；6.4 的 polar/stellar/light/dark
+; 样式刻意不用，避免未来 runner 镜像降级导致编译失败。
 WizardStyle=modern
+WizardImageStretch=no
 ShowLanguageDialog=no
 LanguageDetectionMethod=none
 SetupIconFile=..\installer_resources\icon.ico

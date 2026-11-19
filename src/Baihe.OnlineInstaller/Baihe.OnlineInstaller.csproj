@@ -13,7 +13,8 @@
         <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
         <AssemblyVersion>1.1.25.0</AssemblyVersion>
         <FileVersion>1.1.25.0</FileVersion>
-        <ApplicationIcon />
+        <!-- 应用图标：白鹤品牌图标（原为空 → 运行时是 Inno 默认帆船图标） -->
+        <ApplicationIcon>..\..\installer_resources\icon.ico</ApplicationIcon>
         <!-- 体积优化 -->
         <DebugType>none</DebugType>
         <DebugSymbols>false</DebugSymbols>
